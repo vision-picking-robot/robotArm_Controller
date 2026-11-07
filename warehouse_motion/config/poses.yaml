@@ -7,12 +7,12 @@
 
 floor:
   # 바닥 높이: 그리퍼를 닫고 TCP를 테이블에 살짝 닿게 해 최소 4곳 측정 → 가장 높은 값
-  floor_z: null            # 미측정. 실물 모드에서 null 이면 모든 이동이 차단된다
-  floor_samples: []        # 측정한 z 값들 (교시 도우미가 기록)
+  floor_z: 0.0             # 측정 완료 (실측 -1.05mm, 여유치 0.0mm 반영)
+  floor_samples: [-1.05]   # 측정한 z 값들
   # 소프트웨어 하한선 = floor_z + safety_margin + nfc_protrusion
   safety_margin: 10.0
   # NFC 리더기 하단이 TCP(손끝)보다 아래로 나온 양. 위에 있으면 0
-  nfc_protrusion: null     # 미측정. 실물 모드에서 null 이면 모든 이동이 차단된다
+  nfc_protrusion: 0.0      # 리더기가 TCP보다 아래로 나오지 않았으면 0.0
 
 # 가상 모드(mode:=virtual) 테스트 전용 값. 실물에는 절대 쓰이지 않는다.
 virtual:
