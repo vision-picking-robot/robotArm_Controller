@@ -1,0 +1,63 @@
+# 자세·바닥 높이 설정 (단위: mm, deg / 기준 좌표계: base)
+#
+# - posx: [x, y, z, rx, ry, rz]  (두산 ZYZ 오일러)
+# - posj: [j1, j2, j3, j4, j5, j6]
+# - taught: 직접 교시로 기록했으면 true. 실물 모드(real)에서는 taught: true 인 자세만 사용한다.
+# - 교시 도우미(마일스톤 4)가 이 파일의 값을 채운다. 손으로 숫자를 지어내 넣지 말 것.
+
+floor:
+  # 바닥 높이: 그리퍼를 닫고 TCP를 테이블에 살짝 닿게 해 최소 4곳 측정 → 가장 높은 값
+  floor_z: null            # 미측정. 실물 모드에서 null 이면 모든 이동이 차단된다
+  floor_samples: []        # 측정한 z 값들 (교시 도우미가 기록)
+  # 소프트웨어 하한선 = floor_z + safety_margin + nfc_protrusion
+  safety_margin: 10.0
+  # NFC 리더기 하단이 TCP(손끝)보다 아래로 나온 양. 위에 있으면 0
+  nfc_protrusion: null     # 미측정. 실물 모드에서 null 이면 모든 이동이 차단된다
+
+# 가상 모드(mode:=virtual) 테스트 전용 값. 실물에는 절대 쓰이지 않는다.
+virtual:
+  floor_z: 100.0
+  nfc_protrusion: 0.0
+
+motion:
+  approach_offset_z: 100.0   # 집기 자세 위 접근 높이
+  # 실물 첫 실행은 30 이하 (README 안전 규칙)
+  max_vel: 30.0
+  max_acc: 30.0
+
+poses:
+  home:                     # YOLO 촬영 시 카메라 시야 밖이어야 함
+    posx: null
+    posj: null
+    taught: false
+  label_scan_approach:
+    posx: null
+    posj: null
+    taught: false
+  label_scan:
+    posx: null
+    posj: null
+    taught: false
+  via_point:                # 상품 구역 ↔ 박스 사이 경유점
+    posx: null
+    posj: null
+    taught: false
+
+# 박스 안 내려놓기 위치 (슬롯 번호 = 키)
+box_slots:
+  1:
+    posx: null
+    posj: null
+    taught: false
+  2:
+    posx: null
+    posj: null
+    taught: false
+  3:
+    posx: null
+    posj: null
+    taught: false
+  4:
+    posx: null
+    posj: null
+    taught: false
