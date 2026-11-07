@@ -90,3 +90,13 @@ products:
       taught: true
     virtual: {x: 450.0, y: -150.0, rz: 0.0, grasp_height_from_floor: 30.0}
     grip_force: null
+
+  doll:               # 인형 (가상 테스트용, 실물 교시 제외)
+    real:
+      x: null
+      y: null
+      rz: null
+      grasp_height_from_floor: null
+      taught: false
+    virtual: {x: 550.0, y: -100.0, rz: 0.0, grasp_height_from_floor: 50.0}
+    grip_force: null
