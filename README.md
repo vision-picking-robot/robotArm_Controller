@@ -1,1 +1,246 @@
-# robotArm_Controll
+# robotArm_Controller
+
+물류 창고 피킹 시나리오에서 **두산 E0509 협동로봇 + ROBOTIS RH-P12-RN 그리퍼**의
+모션 제어를 담당하는 ROS 2 (Jazzy) 패키지 모음입니다.
+
+> YOLO 인식, NFC 읽기 로직, 전체 상태 머신은 다른 팀원이 담당합니다.
+> 이 저장소는 그들이 호출할 수 있는 **ROS 2 서비스 인터페이스**를 제공하는 것이 목표입니다.
+
+---
+
+## 목차
+1. [전체 시나리오](#1-전체-시나리오)
+2. [담당 범위](#2-담당-범위)
+3. [개발 환경](#3-개발-환경)
+4. [설계 결정](#4-설계-결정)
+5. [바닥 높이 안전장치 (2중)](#5-바닥-높이-안전장치-2중)
+6. [패키지 구조 (예정)](#6-패키지-구조-예정)
+7. [서비스 인터페이스](#7-서비스-인터페이스)
+8. [마일스톤](#8-마일스톤)
+9. [안전 규칙](#9-안전-규칙)
+10. [작업 규칙](#10-작업-규칙)
+11. [알려진 이슈](#11-알려진-이슈)
+
+---
+
+## 1. 전체 시나리오
+
+```
+① 사람이 박스에 송장 + NFC 라벨 부착 후 지정 위치에 배치 (트리거)
+        ↓
+② 로봇이 그리퍼 옆 NFC 리더기로 박스 상단 라벨 스캔 → 주문 목록 획득
+        ↓
+③ 상품 구역 위 고정 카메라 + YOLOv8 로 주문 상품 인식
+        ↓
+④ 로봇이 상품을 위에서 집어 박스에 넣음 (주문 수량만큼 반복)
+        ↓
+⑤ 완료 시 홈 자세로 복귀
+```
+
+- **상품**: 곽과자, 페트 음료, 스팸/참치캔, 물티슈, 인형 (모두 바닥/테이블 위에 놓임)
+
+## 2. 담당 범위
+
+| 항목 | 내용 |
+|---|---|
+| TCP | 현재 TCP 확인 및 설정 지원 |
+| 그리퍼 | 열기 / 닫기 / 현재 위치 읽기 제어 방법 확보 |
+| 교시 | 직접 교시 좌표 기록 도구, 바닥 높이 측정 |
+| 안전장치 | 바닥 아래로 내려가지 않도록 하는 소프트웨어 검사 + 펜던트 설정 가이드 |
+| 좌표 변환 | 카메라 픽셀 → 로봇 base 좌표 (호모그래피) |
+| Pick & Place | 상품 위 접근 → 하강 → 집기 → 상승 → 경유 → 박스 위 → 내려놓기 → 복귀 |
+| 라벨 스캔 | 라벨 스캔 자세로 이동 (NFC 읽기 자체는 다른 팀원 담당) |
+
+## 3. 개발 환경
+
+| 항목 | 값 |
+|---|---|
+| OS / ROS | Ubuntu, ROS 2 **Jazzy** (`/opt/ros/jazzy`) |
+| 워크스페이스 | `~/ros2_ws` (소스: `~/ros2_ws/src`) |
+| 로봇 | 두산 **E0509**, 드라이버 [`doosan-robot2`](https://github.com/DoosanRobotics/doosan-robot2) (jazzy), 네임스페이스 `dsr01` |
+| 그리퍼 | ROBOTIS **RH-P12-RN** (연결·제어 방식 조사 필요) |
+| NFC 리더기 | 그리퍼 옆면 부착 (손끝 대비 돌출량 측정 필요) |
+| 카메라 | Intel RealSense D455f (추정), 상품 구역 위 고정 (**Eye-to-Hand**) |
+
+### 드라이버 실행
+
+```bash
+# 실물
+ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
+    mode:=real host:=<ROBOT_IP> port:=12345 model:=e0509
+
+# 가상 (에뮬레이터) — 새 동작은 여기서 먼저 검증
+ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
+    mode:=virtual host:=127.0.0.1 model:=e0509
+```
+
+- 로봇 모드는 **자동**이어야 합니다: `/dsr01/system/get_robot_mode` → `1`
+
+## 4. 설계 결정
+
+### 로봇 제어
+- `DSR_ROBOT2` 파이썬 API 사용 (`movej`, `movel`, `ref=DR_BASE/DR_TOOL`, `mod=DR_MV_MOD_REL` 등)
+- 참고 예제: `doosan-robot2/dsr_example2/.../demo/dance_m1013.py`
+- 기준 좌표계: **base**
+- TCP: **그리퍼 두 손가락 끝 중앙**
+
+### 잡기 방식
+- 위에서 수직 접근 (**top-down**)
+- 접근 자세 = 집기 자세에서 **z + 100 mm**
+- 상품 회전 각도
+  - 1차: 상품을 정해진 방향으로 놓는다고 가정
+  - 2차: YOLO OBB 각도로 손목(rz) 회전
+
+### 좌표 관리
+- 좌표는 **직접 교시**로 따고 YAML에 저장 (`posx`, `posj` 둘 다 기록)
+- **YOLO 연동 전**: `products.yaml`의 상품별 고정 좌표로 pick & place 완성
+  - 실물 로봇: 실제로 상품을 놓고 **교시한 값만** 사용
+  - 가상 모드 테스트: 임의 숫자 허용
+- **YOLO 연동 후**: x, y 를 YOLO 중심 픽셀의 호모그래피 변환값으로 대체
+- 코드는 **"상품 좌표를 어디서 받느냐"만 바꾸면** 되도록 설계 (고정값 ↔ YOLO 변환값)
+- YOLO 촬영 시 로봇은 **카메라 시야 밖의 홈 자세**에 있어야 함
+
+## 5. 바닥 높이 안전장치 (2중)
+
+```
+                 ┌──────────────────────────────┐
+  이동 명령 ───▶ │ 1차: 소프트웨어 (safe_move)    │ ── 목표 z < 하한선 → 명령 차단 + 예외
+                 └──────────────┬───────────────┘
+                                ▼ 통과
+                 ┌──────────────────────────────┐
+                 │ 2차: 컨트롤러 (펜던트 안전 영역) │ ── 최후 방어선
+                 └──────────────────────────────┘
+```
+
+### 바닥 높이 `floor_z` 측정
+1. 그리퍼를 **닫은 상태**에서 TCP를 테이블 표면에 살짝 닿게 함
+2. 테이블 모서리 등 **최소 4곳** 측정
+3. 측정값 차이가 **5 mm 이상**이면 보고 (테이블 기울기 확인)
+4. 차이가 작으면 **가장 높은 값**을 `floor_z`로 사용
+
+### 하한선 계산
+
+| 항목 | 값 |
+|---|---|
+| 소프트웨어 하한선 | `floor_z + SAFETY_MARGIN` |
+| `SAFETY_MARGIN` | 기본 **10 mm** (설정 파일에서 변경). NFC 리더기 등이 손끝보다 아래로 나와 있으면 **그 돌출량만큼 추가** |
+| 펜던트 하한선 | 소프트웨어 하한선보다 **약 5 mm 낮게** → 정상 시 소프트웨어가 먼저 막고, 컨트롤러는 예비 |
+
+### 상품 집는 높이
+- 절대 z가 아니라 **바닥 기준 높이** `grasp_height_from_floor`로 `products.yaml`에 저장
+- 실행 시 `z = floor_z + grasp_height_from_floor`
+- 계산된 z가 하한선보다 낮으면 **그 상품은 실행하지 않고 보고**
+
+### ⚠️ 한계
+소프트웨어 검사는 **TCP 도착점만** 확인합니다.
+이동 **경로**(특히 `movej`)나 그리퍼 옆 **NFC 리더기의 충돌**은 막지 못하므로
+**펜던트 안전 영역 설정을 반드시 권장**합니다.
+
+## 6. 패키지 구조 (예정)
+
+```
+warehouse_interfaces/          # 커스텀 srv 정의 (ament_cmake)
+└── srv/
+    ├── PickPlace.srv
+    └── MoveToPose.srv
+
+warehouse_motion/              # 모션 제어 (ament_python)
+├── config/
+│   ├── poses.yaml             # 홈, 라벨 스캔 접근/스캔, 박스 슬롯, 경유점, floor_z, SAFETY_MARGIN
+│   ├── products.yaml          # 상품별 x, y(임시), grasp_height_from_floor, 쥐는 힘
+│   └── homography.yaml        # 픽셀 → base 변환 행렬
+├── warehouse_motion/
+│   ├── safe_move.py           # 안전 이동 래퍼 (모든 이동은 여기를 통해서만)
+│   ├── gripper_node.py        # 그리퍼 열기/닫기/위치 읽기 서비스
+│   ├── teach_tool.py          # 교시 도우미 + 바닥 측정 모드
+│   ├── calibrate_homography.py
+│   └── pick_place_node.py     # PickPlace / MoveToPose 서비스 서버
+└── test/
+    └── test_safe_move.py      # 하한선 차단 단위 테스트 (로봇 미사용)
+```
+
+### `safe_move` 규칙
+- 로봇을 움직이는 모든 코드는 `movel`/`movej`를 **직접 호출하지 않고** 이 래퍼만 사용
+- `movel`
+  - 절대 좌표 → 목표 z 바로 검사
+  - 상대 이동 → 현재 posx를 읽어 도착 위치 계산 후 검사
+- `movej` → fkin(정기구학) 서비스로 목표 관절값을 posx로 변환해 z 검사 (없으면 대안 검토)
+- 하한선 위반 시 **명령을 보내지 않고** 예외 발생, 목표값과 하한선을 로그로 출력
+
+## 7. 서비스 인터페이스
+
+다른 팀원(상태 머신, YOLO, NFC)이 호출하는 서비스입니다. 정의는 `warehouse_interfaces`.
+
+### `PickPlace.srv`
+```
+string  product_name   # products.yaml 의 상품 이름
+float64 u              # YOLO 중심 픽셀 u
+float64 v              # YOLO 중심 픽셀 v
+float64 angle          # 상품 회전 각도 (2차 버전에서 사용)
+int32   box_slot       # 박스 내려놓기 슬롯 번호
+---
+bool    success
+string  message
+```
+
+### `MoveToPose.srv`
+```
+string  pose_name      # poses.yaml 에 저장된 자세 이름 (예: "home", "label_scan")
+---
+bool    success
+```
+
+### 실패 처리
+이동 실패, 잡기 실패(그리퍼가 끝까지 닫힘), 하한선 위반 시
+→ **안전 자세로 복귀**하고 `success=false` + 원인 메시지 반환
+
+## 8. 마일스톤
+
+각 단계 완료 후 확인을 받고 다음으로 진행합니다.
+
+| # | 단계 | 주요 내용 | 상태 |
+|---|---|---|---|
+| 1 | 환경 확인 | 현재 TCP 이름·오프셋 확인 방법, 카메라 토픽, 필요한 dsr 서비스 목록 (이동, 현재 좌표, fkin 등) | ⬜ |
+| 2 | 그리퍼 제어 확보 (**블로커**) | 연결 방식(툴 플랜지 vs `/dev/ttyUSB*`), 플랜지 시리얼/Modbus/DRL 서비스 조사 → `gripper_node` 구현. 오래 걸리면 스텁으로 두고 병행 | ⬜ |
+| 3 | 패키지 생성 | `warehouse_motion` + `poses.yaml`, `products.yaml` | ⬜ |
+| 4 | 교시 도우미 | 엔터 → 현재 posx/posj 읽기 → 이름 입력 → YAML 저장. 바닥 측정 모드(최대/최소/차이), NFC 돌출 측정 안내 | ⬜ |
+| 5 | `safe_move` 래퍼 | z 하한선 검사 (movel 절대/상대, movej+fkin) + 단위 테스트 | ⬜ |
+| 6 | 펜던트 안전 영역 가이드 | 하한값 계산, 설정 절차, 승인 필요 여부, 저속 검증 절차, 설정 불가 시 주의사항 | ⬜ |
+| 7 | 고정 좌표 pick & place | 상품 1개 → 5개 연속 수행 | ⬜ |
+| 8 | 호모그래피 캘리브레이션 | 기준점 4개 이상 (픽셀, base x/y) → `cv2.findHomography`, 재투영 오차 출력 | ⬜ |
+| 9 | 서비스 인터페이스 | `PickPlace.srv`, `MoveToPose.srv` (`warehouse_interfaces`) | ⬜ |
+| 10 | 실패 처리 | 이동/잡기/하한선 실패 시 안전 자세 복귀 + 실패 반환 | ⬜ |
+
+## 9. 안전 규칙
+
+- ✅ **조회 명령은 바로 실행 가능**: `ros2 service list`, `ros2 topic list`, `ros2 interface show`, `get_current_*`, `get_robot_mode` 등
+- ⚠️ **로봇/그리퍼를 움직이는 명령은 실행 전 반드시 확인**: 이동 서비스, 그리퍼 열기/닫기, 모드·TCP 변경, 동작 스크립트 실행
+- 새 동작은 가능하면 `mode:=virtual`에서 먼저 검증
+- 실물 첫 실행 속도는 **vel/acc 30 이하**
+- **TCP 변경**은 팀 전체 좌표에 영향 → 명시적 확인 후 진행
+- 예시 좌표값을 실제 로봇 좌표처럼 쓰지 않음. **실물에서는 교시값만 사용**
+- **`floor_z` 측정 전**에는 실물에서 상품 구역으로 내려가는 동작 금지
+- `safe_move` 래퍼를 **우회하는 이동 코드 금지**
+
+## 10. 작업 규칙
+
+- 서비스 이름과 필드는 추측하지 말고 `ros2 service list`, `ros2 interface show`로 확인 후 작성
+- 빌드는 항상 `~/ros2_ws`에서 (`src` 안에서 빌드 금지)
+  ```bash
+  cd ~/ros2_ws
+  colcon build --packages-select <패키지>
+  source install/setup.bash
+  ```
+- 기존 `doosan-robot2` 패키지는 수정하지 않고, 코드는 이 저장소 패키지에 둠
+- 파일 삭제(`rm`)는 실행 전 확인
+
+## 11. 알려진 이슈
+
+| 이슈 | 대응 |
+|---|---|
+| `/dsr01/gripper/close` 등을 제공하는 노드가 워크스페이스에 없음 | 마일스톤 2에서 제어 방법 조사 |
+| `~/ros2_ws/src` 안에 잘못 생성된 `build/install/log` 폴더가 있을 수 있음 | 발견 시 정리 |
+| `--symlink-install` 빌드 시 `PackageNotFoundError: No package metadata` | 해당 패키지 build/install 폴더 삭제 후 옵션 없이 재빌드 |
+| `ROS_LOCALHOST_ONLY` deprecated 경고 | 무시 (모든 노드가 같은 PC) |
+| 노드 콜백 안에서 서비스를 동기 호출하면 데드락 가능 | `MultiThreadedExecutor` + 콜백 그룹 분리 또는 비동기 호출로 설계 |
+| 가상 모드(에뮬레이터 3.0.1)에서 `move_spiral` 호출 시 응답 없이 컨트롤러가 멈춤 | pick & place 에서는 사용하지 않음. 멈추면 bringup 재시작 |
