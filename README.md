@@ -4,9 +4,16 @@
 모션 제어를 담당하는 ROS 2 (Jazzy) 패키지 모음입니다.
 
 > YOLO 인식, NFC 읽기 로직, 전체 상태 머신은 다른 팀원이 담당합니다.
-> 이 저장소는 그들이 호출할 수 있는 **ROS 2 서비스 인터페이스**를 제공하는 것이 목표입니다.
+> 이 저장소는 그들이 호출할 수 있는 **ROS 2 인터페이스**를 제공하는 것이 목표입니다. 현재 실행 가능한 데모는 ROS 없는 모의 실행입니다.
 
 ---
+
+## 로봇 연결 전 준비
+
+설정 검증 수정, 상품별 파지 정책과 RFID·주문·비전·피킹 전체 모의 시나리오를 추가했습니다.
+실물 좌표와 파지값은 미설정 상태를 유지합니다. [실행 방법과 파지 동작](docs/offline-preparation.md)을 참고하세요.
+요청 형식과 다음 순서는 [연결 초안](docs/integration-contract.md)에 있습니다.
+D455를 이용한 물체 폭 추정과 자동 열림 폭은 추후 검토합니다.
 
 ## 목차
 1. [전체 시나리오](#1-전체-시나리오)
@@ -60,7 +67,7 @@
 | 로봇 | 두산 **E0509**, 드라이버 [`doosan-robot2`](https://github.com/DoosanRobotics/doosan-robot2) (jazzy), 네임스페이스 `dsr01` |
 | 그리퍼 | ROBOTIS **RH-P12-RN** (연결·제어 방식 조사 필요) |
 | NFC 리더기 | 그리퍼 옆면 부착 (손끝 대비 돌출량 측정 필요) |
-| 카메라 | Intel RealSense D455f (추정), 상품 구역 위 고정 (**Eye-to-Hand**) |
+| 카메라 | 사용자 보유 Intel RealSense D455, 상품 구역 위 고정 예정 (**Eye-to-Hand**). 보정·폭 추정 작업은 추후 진행 |
 
 ### 드라이버 실행
 
@@ -96,7 +103,7 @@ ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
 - **YOLO 연동 전**: `products.yaml`의 상품별 고정 좌표로 pick & place 완성
   - 실물 로봇: 실제로 상품을 놓고 **교시한 값만** 사용
   - 가상 모드 테스트: 임의 숫자 허용
-- **YOLO 연동 후**: x, y 를 YOLO 중심 픽셀의 호모그래피 변환값으로 대체
+- **YOLO 연동 후**: 검증된 Base 파지 좌표를 입력. 테이블 호모그래피를 높이가 다른 상품 윗면에 그대로 적용하지 않으며, 깊이·상품 높이를 반영한 변환을 검증한다.
 - 코드는 **"상품 좌표를 어디서 받느냐"만 바꾸면** 되도록 설계 (고정값 ↔ YOLO 변환값)
 - YOLO 촬영 시 로봇은 **카메라 시야 밖의 홈 자세**에 있어야 함
 
@@ -113,7 +120,7 @@ ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
 ```
 
 ### 바닥 높이 `floor_z` 측정
-1. 그리퍼를 **닫은 상태**에서 TCP를 테이블 표면에 살짝 닿게 함
+1. 승인된 측정 도구 또는 수동 교시 절차로 작업대 표면 높이를 측정 (자동 접촉 이동 금지)
 2. 테이블 모서리 등 **최소 4곳** 측정
 3. 측정값 차이가 **5 mm 이상**이면 보고 (테이블 기울기 확인)
 4. 차이가 작으면 **가장 높은 값**을 `floor_z`로 사용
@@ -124,7 +131,7 @@ ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
 |---|---|
 | 소프트웨어 하한선 | `floor_z + SAFETY_MARGIN` |
 | `SAFETY_MARGIN` | 기본 **10 mm** (설정 파일에서 변경). NFC 리더기 등이 손끝보다 아래로 나와 있으면 **그 돌출량만큼 추가** |
-| 펜던트 하한선 | 소프트웨어 하한선보다 **약 5 mm 낮게** → 정상 시 소프트웨어가 먼저 막고, 컨트롤러는 예비 |
+| 펜던트 안전 설정 | 현장 담당자가 툴 형상·정지 거리·작업 영역과 컨트롤러 버전을 검토해 설정. 단순히 소프트웨어 값에서 5mm를 빼서 정하지 않음 |
 
 ### 상품 집는 높이
 - 절대 z가 아니라 **바닥 기준 높이** `grasp_height_from_floor`로 `products.yaml`에 저장
@@ -169,30 +176,16 @@ warehouse_motion/              # 모션 제어 (ament_python)
 
 ## 7. 서비스 인터페이스
 
-다른 팀원(상태 머신, YOLO, NFC)이 호출하는 서비스입니다. 정의는 `warehouse_interfaces`.
+ROS 인터페이스는 미구현입니다. `warehouse_interfaces`와 실행 워커는 팀 합의 후 생성합니다.
+현재 Python `PickRequest`는 요청/주문/상품/박스/슬롯 ID와 Base 파지 자세를 검증합니다.
+픽셀 좌표를 모션에 직접 전달하지 않습니다. [연결 초안과 예시](docs/integration-contract.md)를 참고하세요.
 
-### `PickPlace.srv`
-```
-string  product_name   # products.yaml 의 상품 이름
-float64 u              # YOLO 중심 픽셀 u
-float64 v              # YOLO 중심 픽셀 v
-float64 angle          # 상품 회전 각도 (2차 버전에서 사용)
-int32   box_slot       # 박스 내려놓기 슬롯 번호
----
-bool    success
-string  message
-```
-
-### `MoveToPose.srv`
-```
-string  pose_name      # poses.yaml 에 저장된 자세 이름 (예: "home", "label_scan")
----
-bool    success
-```
+긴 피킹 작업의 진행 보고·취소는 Action을 우선 검토하고, 자세 조회 등 짧은 요청은 Service로 분리합니다.
+현재 가짜 실행기의 취소 검사는 실물 이동 도중 정지를 보장하지 않습니다.
 
 ### 실패 처리
 이동 실패, 잡기 실패(그리퍼가 끝까지 닫힘), 하한선 위반 시
-→ **안전 자세로 복귀**하고 `success=false` + 원인 메시지 반환
+→ **정지 요청과 상태 보고**를 우선한다. 자동 홈 복귀나 자동 해제를 하지 않는다. 실제 복구는 파지 상태와 경로를 확인한 뒤 수행한다.
 
 ## 8. 마일스톤
 
@@ -202,14 +195,14 @@ bool    success
 |---|---|---|---|
 | 1 | 환경 확인 | 현재 TCP 이름·오프셋 확인 방법, 카메라 토픽, 필요한 dsr 서비스 목록 (이동, 현재 좌표, fkin 등) | 🟨 소스 조사 완료, 드라이버 실행 후 재확인 필요 → [조사 결과](#마일스톤-1-환경-확인-결과) |
 | 2 | 그리퍼 제어 확보 (**블로커**) | 연결 방식(툴 플랜지 vs `/dev/ttyUSB*`), 플랜지 시리얼/Modbus/DRL 서비스 조사 → `gripper_node` 구현. 오래 걸리면 스텁으로 두고 병행 | 🟨 조사 중 → [조사 결과](#마일스톤-2-그리퍼-조사-결과) |
-| 3 | 패키지 생성 | `warehouse_motion` + `poses.yaml`, `products.yaml` | ⬜ |
+| 3 | 패키지 생성 | `warehouse_motion` + `poses.yaml`, `products.yaml` | 구현 완료 |
 | 4 | 교시 도우미 | 엔터 → 현재 posx/posj 읽기 → 이름 입력 → YAML 저장. 바닥 측정 모드(최대/최소/차이), NFC 돌출 측정 안내 | ⬜ |
-| 5 | `safe_move` 래퍼 | z 하한선 검사 (movel 절대/상대, movej+fkin) + 단위 테스트 | ⬜ |
+| 5 | `safe_move` 래퍼 | z 하한선·유한값·속도 검사 + 단위 테스트 | 오프라인 검증 완료 |
 | 6 | 펜던트 안전 영역 가이드 | 하한값 계산, 설정 절차, 승인 필요 여부, 저속 검증 절차, 설정 불가 시 주의사항 | ⬜ |
-| 7 | 고정 좌표 pick & place | 상품 1개 → 5개 연속 수행 | ⬜ |
-| 8 | 호모그래피 캘리브레이션 | 기준점 4개 이상 (픽셀, base x/y) → `cv2.findHomography`, 재투영 오차 출력 | ⬜ |
-| 9 | 서비스 인터페이스 | `PickPlace.srv`, `MoveToPose.srv` (`warehouse_interfaces`) | ⬜ |
-| 10 | 실패 처리 | 이동/잡기/하한선 실패 시 안전 자세 복귀 + 실패 반환 | ⬜ |
+| 7 | 고정 좌표 pick & place | 합성 좌표 5종 데모와 가짜 주문 수량 반복 | 모의 실행 검증, 실물 미검증 |
+| 8 | 비전 좌표·물체 폭 | D455 깊이·보정과 자동 열림 폭 | 추후 고려사항 |
+| 9 | ROS 인터페이스 | 요청 계약 초안 → 팀 합의 → Action/Service 구현 | 초안·Python 검증만 구현 |
+| 10 | 실패 처리 | 정지 요청·오류 보고, 자동 복귀·해제 금지 | 오프라인 검증, 실물 정지 확인 필요 |
 
 ### 마일스톤 1: 환경 확인 결과
 
@@ -234,7 +227,7 @@ bool    success
 
 - ✅ `motion/fkin` 존재 → `safe_move` 에서 `movej` 목표의 z 검사 가능
 - ⚠️ TCP **오프셋**을 읽는 서비스는 없음 → 펜던트 TCP 설정 화면에서 확인.
-  보조 검증: `get_current_posx` 와 `get_current_tool_flange_posx` 의 차이
+  TCP·플랜지 자세로 보조 검증하려면 회전을 포함한 좌표 변환이 필요하며 단순 위치 차이를 TCP 오프셋으로 사용하지 않음.
 - `modbus/*` 는 Modbus **TCP**(IP·포트) 전용 → 손목 RS-485 장치에는 해당 없음
 - 카메라: 개발 PC USB 에 RealSense 미검출, `realsense2_camera` 미설치 → 연결 PC 확인 필요
 
@@ -289,6 +282,6 @@ bool    success
 | `/dsr01/gripper/close` 등을 제공하는 노드가 워크스페이스에 없음 | 마일스톤 2에서 제어 방법 조사 |
 | `~/ros2_ws/src` 안에 잘못 생성된 `build/install/log` 폴더가 있을 수 있음 | 발견 시 정리 |
 | `--symlink-install` 빌드 시 `PackageNotFoundError: No package metadata` | 해당 패키지 build/install 폴더 삭제 후 옵션 없이 재빌드 |
-| `ROS_LOCALHOST_ONLY` deprecated 경고 | 무시 (모든 노드가 같은 PC) |
+| `ROS_LOCALHOST_ONLY` / 여러 PC 연결 | 카메라·주문·로봇이 다른 PC면 DDS·ROS_DOMAIN_ID·네트워크 설정 확인 |
 | 노드 콜백 안에서 서비스를 동기 호출하면 데드락 가능 | `MultiThreadedExecutor` + 콜백 그룹 분리 또는 비동기 호출로 설계 |
 | 가상 모드(에뮬레이터 3.0.1)에서 `move_spiral` 호출 시 응답 없이 컨트롤러가 멈춤 | pick & place 에서는 사용하지 않음. 멈추면 bringup 재시작 |

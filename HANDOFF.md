@@ -4,25 +4,35 @@
 > 새 세션에서는 이 파일과 `README.md`를 먼저 읽고 "다음 할 일"부터 진행하세요.
 > 전체 요구사항·안전 규칙은 `README.md`에 있습니다 (특히 9. 안전 규칙).
 
-마지막 갱신: 2026-11-07 — 마일스톤 3 완료, 5 진행 전
+마지막 갱신: 2026-11-07 — 로봇 연결 전 소프트웨어 검증 진행
 
----
-
-## 이번 세션에서 진행하기로 한 순서
-1. [x] 마일스톤 1·2 조사 결과를 README에 반영 → push (`767eb97`)
-2. [x] 마일스톤 3: `warehouse_motion` 패키지 뼈대 + `config/poses.yaml`, `config/products.yaml`
-3. [ ] 마일스톤 5: `safe_move` 래퍼 + 로봇 없이 도는 단위 테스트
+## 이번 단계 완료
+- safe_move/config_loader의 NaN·무한대 검사와 엄격한 taught 검증.
+- 상품 5종별 mock 파지 프로필, 폭·전류·최신 피드백에 기반한 파지 정책.
+- 열림 → 접근 → 파지 → 상승/유지 확인 → 적치/열림 → 퇴피의 ROS 없는 모의 실행.
+- 가짜 박스 트리거 → RFID → 주문 조회 → 비전 → 수량별 피킹·적치 확인 → 홈 복귀.
+- 요청 계약 초안, 모의 요청 중복·동시 실행 차단, 취소·부분 완료·적치 불명확 검사.
+- 오류 시 정지 요청, 자동 복귀/해제 금지, 가상값의 실물 백엔드 사용 차단.
+- 실물 교시값과 real 파지 프로필은 미설정 상태를 유지.
+- 실행/정책/제약: [로봇 연결 전 준비](docs/offline-preparation.md).
+- 요청 형식/작업 순서: [연결 초안](docs/integration-contract.md). 팀과 합의된 API는 아님.
+- 팀 저장소 로컬 통합본에 모의 피킹 POST/조회/취소 API와 SKU 대응 추가. 주문 완료·재고 차감 없음. 팀 `docs/picking-interface.md` 참고.
+- D455 폭 추정·자동 열림 폭·카메라 보정은 사용자 요청으로 추후 항목으로 분리.
+- 컨트롤러 자동 테스트 121개 통과. ROS2 빌드·실물 동작은 미검증.
 
 ## 다음 할 일
-- 마일스톤 5: `warehouse_motion/warehouse_motion/safe_move.py` + `test/test_safe_move.py`
-  - 설계: `SafeMover(z_min, backend, max_vel, max_acc)`. backend 는 DSR_ROBOT2 래핑(지연 import) 또는 테스트용 가짜
-  - movel: ref 필수(DR_BASE/DR_TOOL), ABS+BASE 는 목표 z 직접 검사, REL 은 현재 posx + 이동량
-    (TOOL 상대는 현재 자세 ZYZ 회전행렬로 변환), ABS+TOOL·WORLD·사용자좌표는 거부
-  - movej: ABS/REL(현재 posj 더함) → fkin(DR_BASE) → z 검사. fkin 실패 시 차단(fail-closed)
-  - 위반 시 명령 미전송 + SafetyLimitError + 목표/하한선 로그
-- 사용자 확인 대기: `src/robotArm_Controller/{build,install,log}` 삭제 (실수로 src 안에서 빌드됨, .gitignore 처리됨)
+1. 팀원의 주문/비전 요청 형식과 Base 좌표·단위 계약 확정.
+2. 외부 요청을 주문 1건으로 통합하고 내부 단일 상품 모션 반복. 박스별 슬롯·점유·공간 부족 처리 추가.
+3. RFID→박스→주문, 비전 Base 좌표, 화면 일시정지·취소 연결.
+4. ROS2 환경에서 Action/워커 연결 및 빌드·취소·타임아웃 검증. 실행 이력 영속화와 결과 중복 반영 방지 필요.
+5. 실제 연결 이후에만 그리퍼 모델·통신 경로, TCP/Tool, 교시 좌표와 상품별 파지값 검증.
 
-## 현재 상태 요약
+실제 로봇·그리퍼 통신 어댑터와 물리 시뮬레이터를 테스트한 것은 아니다.
+기존 src 아래 build/install/log 정리는 승인 전 수행하지 않는다.
+
+## 이전 Ubuntu 환경 기록
+
+다음 내용은 기존 인수인계 기록이며 이번 Windows 모의 검사에서 재확인한 실행 상태가 아니다.
 - 저장소 위치: `~/ros2_ws/src/robotArm_Controller` (origin: github.com/vision-picking-robot/robotArm_Controller, `main`)
 - GitHub push 인증: 사용자가 로그인 완료 (HTTPS)
 - 로봇 드라이버: **아직 실행 안 함** (실물 bringup 명령은 README 3장)
@@ -51,7 +61,7 @@
 - DSR_ROBOT2 상수: `DR_BASE=0, DR_TOOL=1, DR_WORLD=2, DR_MV_MOD_ABS=0, DR_MV_MOD_REL=1`
 - `movel(pos, vel, acc, ..., ref=None, mod=...)` — ref 생략 시 전역 좌표계 사용 → safe_move 에서는 ref 필수
 - `get_current_posx(ref)` → `(posx, sol)`, `fkin(posj, ref)` → posx
-- TCP 오프셋 조회 서비스 없음 → 펜던트 확인, 또는 `get_current_posx` vs `get_current_tool_flange_posx` 차이로 검증
+- 현재 TCP 조회는 이름만 반환하므로 오프셋은 펜던트에서 확인. TCP·플랜지 자세로 검증하려면 회전을 포함한 좌표 변환이 필요하며 단순 위치 차이를 플랜지 기준 오프셋으로 쓰지 않음.
 - 그리퍼: `/dev/ttyUSB*` 없음 → PC 직결 아님. 유력 경로 = `drl/drl_start` 로 DRL 손목 시리얼 코드 실행
   (DRL 함수명·그리퍼 프로토콜/baud 는 미확인)
 - 에뮬레이터 3.0.1 에서 `move_spiral` 호출 시 컨트롤러 멈춤 (사용 금지)
