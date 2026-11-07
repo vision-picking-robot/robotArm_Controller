@@ -47,18 +47,23 @@ def test_negative_nfc_rejected(poses):
 
 
 def test_untaught_pose_and_slot_rejected_in_real(poses):
+    p = copy.deepcopy(poses)
+    p['poses']['home']['taught'] = False
+    p['box_slots'][1]['taught'] = False
     with pytest.raises(c.ConfigError, match='교시'):
-        c.get_pose(poses, 'home', 'real')
+        c.get_pose(p, 'home', 'real')
     with pytest.raises(c.ConfigError, match='교시'):
-        c.get_box_slot(poses, 1, 'real')
+        c.get_box_slot(p, 1, 'real')
 
 
 def test_untaught_product_rejected_in_real(poses, products):
     p = copy.deepcopy(poses)
     p['floor'].update(floor_z=12.0, nfc_protrusion=0.0)
     lim = c.floor_limit(p, 'real')
+    prods = copy.deepcopy(products)
+    prods['products']['can']['real']['taught'] = False
     with pytest.raises(c.ConfigError, match='교시'):
-        c.get_product(products, 'can', 'real', lim)
+        c.get_product(prods, 'can', 'real', lim)
 
 
 def test_virtual_products_all_above_limit(poses, products):

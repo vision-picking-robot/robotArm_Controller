@@ -21,6 +21,9 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'motion_server = warehouse_motion.motion_server:main',
+            'rfid_db_node = warehouse_motion.db.rfid_db_node:main',
+        ],
     },
 )

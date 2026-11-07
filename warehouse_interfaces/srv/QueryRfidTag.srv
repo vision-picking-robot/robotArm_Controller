@@ -1,0 +1,8 @@
+string tag_uid         # RFID 태그 UID (예: "0B71E55D" 또는 "0B:71:E5:5D")
+---
+bool   found           # DB 매핑 성공 여부
+string product_name    # 상품 한글명 (예: "아몬드 빼빼로")
+string yolo_class_name # YOLO 검출 클래스명 (예: "snack_box")
+int32  target_class_id # YOLO 클래스 ID
+int32  target_box_slot # 목적지 박스 슬롯 (예: 1)
+string message         # 에러 또는 상태 메시지

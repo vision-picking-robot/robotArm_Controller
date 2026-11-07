@@ -1,0 +1,4 @@
+string  pose_name      # poses.yaml 에 저장된 자세 이름 (예: "home", "label_scan", "label_scan_approach")
+---
+bool    success
+string  message

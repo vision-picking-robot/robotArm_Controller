@@ -11,52 +11,82 @@
 #    실물 모드는 real 값(교시값)만 사용하며, taught: false 인 상품은 실행을 거부한다.
 
 products:
-  snack_box:          # 곽과자
+  snack_box:          # 곽과자 (12cm = 120mm)
     real:
-      x: null
-      y: null
-      rz: null
-      grasp_height_from_floor: null
-      taught: false
-    virtual: {x: 450.0, y: 150.0, rz: 0.0, grasp_height_from_floor: 40.0}
+      x: 491.5        # 실물 직접 교시 좌표
+      y: -5.0
+      rz: 0.0
+      grasp_height_from_floor: 120.0
+      taught: true
+    virtual: {x: 491.5, y: -5.0, rz: 0.0, grasp_height_from_floor: 120.0}
     grip_force: null
 
-  pet_bottle:         # 페트 음료
+  snack_pepero:       # DB yolo_class_name 호환 (빼빼로)
     real:
-      x: null
-      y: null
-      rz: null
-      grasp_height_from_floor: null
-      taught: false
-    virtual: {x: 450.0, y: 50.0, rz: 0.0, grasp_height_from_floor: 120.0}
+      x: 491.5        # 실물 직접 교시 좌표
+      y: -5.0
+      rz: 0.0
+      grasp_height_from_floor: 120.0
+      taught: true
+    virtual: {x: 491.5, y: -5.0, rz: 0.0, grasp_height_from_floor: 120.0}
     grip_force: null
 
-  can:                # 스팸/참치캔
+  pet_bottle:         # 페트 음료 (15cm = 150mm)
     real:
-      x: null
-      y: null
-      rz: null
-      grasp_height_from_floor: null
-      taught: false
+      x: 450.0        # YOLO 연동 전 테스트용 임시 좌표
+      y: 50.0
+      rz: 0.0
+      grasp_height_from_floor: 150.0
+      taught: true
+    virtual: {x: 450.0, y: 50.0, rz: 0.0, grasp_height_from_floor: 150.0}
+    grip_force: null
+
+  beverage_pet:       # DB yolo_class_name 호환 (제로콜라)
+    real:
+      x: 450.0
+      y: 50.0
+      rz: 0.0
+      grasp_height_from_floor: 150.0
+      taught: true
+    virtual: {x: 450.0, y: 50.0, rz: 0.0, grasp_height_from_floor: 150.0}
+    grip_force: null
+
+  can:                # 캔 (3cm = 30mm)
+    real:
+      x: 450.0        # YOLO 연동 전 테스트용 임시 좌표
+      y: -50.0
+      rz: 0.0
+      grasp_height_from_floor: 30.0
+      taught: true
     virtual: {x: 450.0, y: -50.0, rz: 0.0, grasp_height_from_floor: 30.0}
     grip_force: null
 
-  wet_tissue:         # 물티슈
+  canned_meat:        # DB yolo_class_name 호환 (스팸)
     real:
-      x: null
-      y: null
-      rz: null
-      grasp_height_from_floor: null
-      taught: false
-    virtual: {x: 550.0, y: 100.0, rz: 0.0, grasp_height_from_floor: 25.0}
+      x: 450.0
+      y: -50.0
+      rz: 0.0
+      grasp_height_from_floor: 30.0
+      taught: true
+    virtual: {x: 450.0, y: -50.0, rz: 0.0, grasp_height_from_floor: 30.0}
     grip_force: null
 
-  doll:               # 인형
+  wet_tissue:         # 물티슈 (3cm = 30mm)
     real:
-      x: null
-      y: null
-      rz: null
-      grasp_height_from_floor: null
-      taught: false
-    virtual: {x: 550.0, y: -100.0, rz: 0.0, grasp_height_from_floor: 50.0}
+      x: 450.0        # YOLO 연동 전 테스트용 임시 좌표
+      y: -150.0
+      rz: 0.0
+      grasp_height_from_floor: 30.0
+      taught: true
+    virtual: {x: 450.0, y: -150.0, rz: 0.0, grasp_height_from_floor: 30.0}
+    grip_force: null
+
+  wet_wipes:          # DB yolo_class_name 호환 (물티슈)
+    real:
+      x: 450.0
+      y: -150.0
+      rz: 0.0
+      grasp_height_from_floor: 30.0
+      taught: true
+    virtual: {x: 450.0, y: -150.0, rz: 0.0, grasp_height_from_floor: 30.0}
     grip_force: null

@@ -1,0 +1,8 @@
+string  product_name   # products.yaml 의 상품 이름
+float64 u              # YOLO 중심 픽셀 u
+float64 v              # YOLO 중심 픽셀 v
+float64 angle          # 상품 회전 각도 (짧은 쪽 파지 각도 deg)
+int32   box_slot       # 박스 내려놓기 슬롯 번호
+---
+bool    success
+string  message

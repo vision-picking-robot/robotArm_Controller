@@ -20,35 +20,35 @@ virtual:
   nfc_protrusion: 0.0
 
 motion:
-  approach_offset_z: 100.0   # 집기 자세 위 접근 높이
+  approach_offset_z: 150.0   # 집기 자세 위 접근 및 인출 높이 (+15cm = 150mm)
   # 실물 첫 실행은 30 이하 (README 안전 규칙)
   max_vel: 30.0
   max_acc: 30.0
 
 poses:
   home:                     # YOLO 촬영 시 카메라 시야 밖이어야 함
-    posx: null
-    posj: null
-    taught: false
-  label_scan_approach:
-    posx: null
-    posj: null
-    taught: false
-  label_scan:
-    posx: null
-    posj: null
-    taught: false
-  via_point:                # 상품 구역 ↔ 박스 사이 경유점
-    posx: null
-    posj: null
-    taught: false
+    posx: [373.0, 0.0, 285.0, 12.44, 180.0, 12.44]
+    posj: [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    taught: true
+  label_scan_approach:      # 리더기 접근 위치 (Z 285mm)
+    posx: [-323.0, 280.0, 285.0, 44.28, 180.0, -135.72]
+    posj: [139.08, 8.40, 80.99, 0.0, 90.61, -40.92]
+    taught: true
+  label_scan:               # 리더기가 라벨을 읽는 위치 (Z 50mm)
+    posx: [-323.0, 280.0, 50.0, 133.03, 180.0, -46.97]
+    posj: [139.08, 19.13, 105.95, 0.0, 54.91, -40.92]
+    taught: true
+  via_point:                # 상품 구역 ↔ 박스 사이 경유점 (리더기 방향 90도 회전, Z 285mm)
+    posx: [0.0, 373.0, 285.0, 135.0, 180.0, 45.0]
+    posj: [90.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    taught: true
 
 # 박스 안 내려놓기 위치 (슬롯 번호 = 키)
 box_slots:
   1:
-    posx: null
-    posj: null
-    taught: false
+    posx: [-373.0, 0.0, 85.0, 3.26, 180.0, -176.74]
+    posj: [180.0, 8.56, 113.11, 0.0, 58.33, 0.0]
+    taught: true
   2:
     posx: null
     posj: null
