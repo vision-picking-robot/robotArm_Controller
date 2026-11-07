@@ -15,7 +15,10 @@
 
 ## 다음 할 일
 - 사용자 확인 대기
-  - 로컬 커밋 push 여부 (`5f6e622` 마일스톤 3, 그 다음 커밋 마일스톤 5 — 아직 push 안 함)
+  - 로컬 커밋 push 여부 (`e6d5f55`, `0f8b9de` — 아직 push 안 함. `3fc97da` 는 사용자가 직접 push)
+  - ⚠️ `poses.yaml` floor 값: 사용자가 floor_z=0.0, floor_samples=[-1.05], nfc_protrusion=0.0 으로 기록함.
+    `e6d5f55` 에 함께 커밋됨. 측정점이 1곳뿐(규칙: 최소 4곳, 차이 ≥5mm 면 보고, 최댓값 사용)이고
+    nfc_protrusion 실측 여부 미확인 → 사용자 확인 필요. 이 값 때문에 real 모드 하한선(10mm)이 이미 활성화된 상태
   - `src/robotArm_Controller/{build,install,log}` 삭제 (실수로 src 안에서 빌드됨, .gitignore·COLCON_IGNORE 로 무해)
   - 위 "사용자에게 받아야 할 정보" (그리퍼·TCP·카메라)
 - 그다음 후보 (드라이버 없이 가능)
