@@ -20,13 +20,15 @@ def products():
 
 
 def test_real_mode_blocked_until_floor_measured(poses):
+    p = copy.deepcopy(poses)
+    p['floor'].update(floor_z=None, nfc_protrusion=0.0)
     with pytest.raises(c.ConfigError, match='floor_z'):
-        c.floor_limit(poses, 'real')
+        c.floor_limit(p, 'real')
 
 
 def test_real_mode_blocked_until_nfc_measured(poses):
     p = copy.deepcopy(poses)
-    p['floor']['floor_z'] = 12.0
+    p['floor'].update(floor_z=12.0, nfc_protrusion=None)
     with pytest.raises(c.ConfigError, match='nfc_protrusion'):
         c.floor_limit(p, 'real')
 
