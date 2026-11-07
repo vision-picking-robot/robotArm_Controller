@@ -19,6 +19,7 @@
   - 따라서 두산 펜던트의 안전 영역(공간 제한) 설정을 최후 방어선으로 반드시 함께 쓴다.
 """
 import math
+from .validation import finite_number, pose6
 
 DR_BASE = 0
 DR_TOOL = 1
@@ -39,13 +40,7 @@ class MotionError(Exception):
 
 
 def _vec6(pos, what):
-    try:
-        vals = [float(v) for v in pos]
-    except TypeError:
-        raise ValueError(f'{what} 는 숫자 6개여야 합니다: {pos!r}') from None
-    if len(vals) != 6 or not all(math.isfinite(v) for v in vals):
-        raise ValueError(f'{what} 는 유한한 숫자 6개여야 합니다: {pos!r}')
-    return vals
+    return pose6(pos, what)
 
 
 def zyz_rotation(a_deg, b_deg, c_deg):
@@ -79,10 +74,12 @@ class SafeMover:
     """
 
     def __init__(self, z_min, backend, max_vel, max_acc, logger=None):
-        self.z_min = float(z_min)
+        self.z_min = finite_number(z_min, 'z_min')
         self.backend = backend
-        self.max_vel = float(max_vel)
-        self.max_acc = float(max_acc)
+        self.max_vel = finite_number(max_vel, 'max_vel')
+        self.max_acc = finite_number(max_acc, 'max_acc')
+        if self.max_vel <= 0 or self.max_acc <= 0:
+            raise ValueError('속도·가속도 상한은 0보다 커야 합니다')
         self._log = logger or _PrintLogger()
 
     # ---------- 공개 API ----------
@@ -168,7 +165,11 @@ class SafeMover:
             if val is None:
                 raise SafetyLimitError(f'{what}: {name} 를 반드시 명시해야 합니다 (상한 {lim})')
             vals = list(val) if isinstance(val, (list, tuple)) else [val]
-            if not vals or any(float(v) <= 0 or float(v) > lim for v in vals):
+            try:
+                vals = [finite_number(v, name) for v in vals]
+            except ValueError as exc:
+                raise SafetyLimitError(str(exc)) from exc
+            if not vals or any(v <= 0 or v > lim for v in vals):
                 raise SafetyLimitError(f'{what}: {name}={val} 가 허용 범위 (0, {lim}] 를 벗어났습니다')
 
     @staticmethod
