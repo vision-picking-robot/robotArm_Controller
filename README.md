@@ -200,8 +200,8 @@ bool    success
 
 | # | 단계 | 주요 내용 | 상태 |
 |---|---|---|---|
-| 1 | 환경 확인 | 현재 TCP 이름·오프셋 확인 방법, 카메라 토픽, 필요한 dsr 서비스 목록 (이동, 현재 좌표, fkin 등) | ⬜ |
-| 2 | 그리퍼 제어 확보 (**블로커**) | 연결 방식(툴 플랜지 vs `/dev/ttyUSB*`), 플랜지 시리얼/Modbus/DRL 서비스 조사 → `gripper_node` 구현. 오래 걸리면 스텁으로 두고 병행 | ⬜ |
+| 1 | 환경 확인 | 현재 TCP 이름·오프셋 확인 방법, 카메라 토픽, 필요한 dsr 서비스 목록 (이동, 현재 좌표, fkin 등) | 🟨 소스 조사 완료, 드라이버 실행 후 재확인 필요 → [조사 결과](#마일스톤-1-환경-확인-결과) |
+| 2 | 그리퍼 제어 확보 (**블로커**) | 연결 방식(툴 플랜지 vs `/dev/ttyUSB*`), 플랜지 시리얼/Modbus/DRL 서비스 조사 → `gripper_node` 구현. 오래 걸리면 스텁으로 두고 병행 | 🟨 조사 중 → [조사 결과](#마일스톤-2-그리퍼-조사-결과) |
 | 3 | 패키지 생성 | `warehouse_motion` + `poses.yaml`, `products.yaml` | ⬜ |
 | 4 | 교시 도우미 | 엔터 → 현재 posx/posj 읽기 → 이름 입력 → YAML 저장. 바닥 측정 모드(최대/최소/차이), NFC 돌출 측정 안내 | ⬜ |
 | 5 | `safe_move` 래퍼 | z 하한선 검사 (movel 절대/상대, movej+fkin) + 단위 테스트 | ⬜ |
@@ -210,6 +210,54 @@ bool    success
 | 8 | 호모그래피 캘리브레이션 | 기준점 4개 이상 (픽셀, base x/y) → `cv2.findHomography`, 재투영 오차 출력 | ⬜ |
 | 9 | 서비스 인터페이스 | `PickPlace.srv`, `MoveToPose.srv` (`warehouse_interfaces`) | ⬜ |
 | 10 | 실패 처리 | 이동/잡기/하한선 실패 시 안전 자세 복귀 + 실패 반환 | ⬜ |
+
+### 마일스톤 1: 환경 확인 결과
+
+> `doosan-robot2` 소스(`dsr_msgs2/srv`, `dsr_controller2.cpp`)에서 확인한 내용입니다.
+> 드라이버 실행 후 `ros2 service list` / `ros2 interface show` 로 재확인합니다.
+
+필요한 서비스 (모두 `/dsr01/` 아래, ⚠️ = 로봇 상태를 바꿈):
+
+| 용도 | 서비스 | 요청 → 응답 |
+|---|---|---|
+| TCP 이름 | `tcp/get_current_tcp` | → `info` (이름만) |
+| TCP 변경 ⚠️ | `tcp/set_current_tcp`, `tcp/config_create_tcp` | 이름 / 이름 + `pos[6]` |
+| 현재 좌표 | `aux_control/get_current_posx` | `ref` (0=base) → `task_pos_info[0][0:6]` |
+| | `aux_control/get_current_posj` | → `pos[6]` |
+| | `aux_control/get_current_tool_flange_posx` | `ref` → 플랜지 `pos[6]` |
+| 정기구학 | `motion/fkin` | `pos[6]`(posj), `ref` → `conv_posx[6]` |
+| 역기구학 | `motion/ikin` | posx, `sol_space`, `ref` → `conv_posj[6]` |
+| 이동 ⚠️ | `motion/move_joint`, `motion/move_line`, `motion/move_stop`, `motion/move_wait` | |
+| 상태 | `system/get_robot_mode`, `system/get_robot_state`, `system/get_last_alarm` | |
+| DRL ⚠️ | `drl/drl_start`, `drl/drl_stop`, `drl/get_drl_state` | `robot_system`, `code` |
+| 툴 I/O | `io/get_tool_digital_input`, `io/set_tool_digital_output` ⚠️ | |
+
+- ✅ `motion/fkin` 존재 → `safe_move` 에서 `movej` 목표의 z 검사 가능
+- ⚠️ TCP **오프셋**을 읽는 서비스는 없음 → 펜던트 TCP 설정 화면에서 확인.
+  보조 검증: `get_current_posx` 와 `get_current_tool_flange_posx` 의 차이
+- `modbus/*` 는 Modbus **TCP**(IP·포트) 전용 → 손목 RS-485 장치에는 해당 없음
+- 카메라: 개발 PC USB 에 RealSense 미검출, `realsense2_camera` 미설치 → 연결 PC 확인 필요
+
+### 마일스톤 2: 그리퍼 조사 결과
+
+| 확인 | 결과 | 의미 |
+|---|---|---|
+| `/dev/ttyUSB*`, `/dev/ttyACM*` | 없음 | PC 직접 연결(U2D2) 아님 |
+| ROBOTIS 공식 ROS 패키지 | `/dev/ttyUSB0`, 4 Mbps Dynamixel 전제 | 손목 연결 구성에는 그대로 사용 불가 |
+| 두산 ROS 서비스 | 손목 시리얼 서비스 없음 (`SerialSendData.srv` 는 미등록) | ROS 서비스로 직접 제어 불가 |
+| 컨트롤러 라이브러리 `DRFS.h` | 손목 RS-485 / `FLANGE_SERIAL` 구조체 존재 | 컨트롤러는 손목 시리얼 지원 |
+| `drl/drl_start` | DRL 코드 문자열을 컨트롤러에서 실행 | **유력 경로** |
+| 기존 그리퍼 코드 | 없음 | 신규 작성 |
+
+**유력 방법**: ROS → `drl/drl_start` → DRL 이 손목 시리얼로 그리퍼 명령 전송.
+미확인: DRL 손목 시리얼 함수명, 그리퍼 통신 프로토콜(Dynamixel 2.0 / Modbus RTU)과 baud.
+
+확인 필요 (펜던트·실물):
+1. 펜던트에 그리퍼 플러그인·스킬·예제 DRL 이 있는지
+2. 펜던트로 그리퍼를 열고 닫아본 적이 있는지, 그 방법
+3. 모델명 `RH-P12-RN` / `RH-P12-RN(A)`
+4. 케이블이 연결된 손목 커넥터 단자
+5. 펜던트 TCP 이름·오프셋
 
 ## 9. 안전 규칙
 
