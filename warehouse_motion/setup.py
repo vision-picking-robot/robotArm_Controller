@@ -13,14 +13,17 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'PyYAML>=6'],
     zip_safe=True,
     maintainer='naeun',
     maintainer_email='skdms8827@s3i.co.kr',
     description='Doosan E0509 pick and place motion with floor safety limits',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest>=7']},
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'warehouse_mock = warehouse_motion.mock_demo:main',
+            'warehouse_scenario = warehouse_motion.mock_scenario:main',
+        ],
     },
 )

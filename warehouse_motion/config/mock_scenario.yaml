@@ -1,0 +1,10 @@
+# All identities and order contents below are fictitious test fixtures.
+mode: mock
+boxes:
+  "000000A1":
+    box_id: BOX-01
+    order_id: ORDER-DEMO-01
+    lines:
+      - {product_id: snack_box, quantity: 1}
+      - {product_id: pet_bottle, quantity: 1}
+      - {product_id: wet_tissue, quantity: 1}
