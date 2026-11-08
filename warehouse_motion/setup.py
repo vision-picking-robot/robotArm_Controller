@@ -7,7 +7,7 @@ package_name = 'warehouse_motion'
 setup(
     name=package_name,
     version='0.1.0',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(include=[package_name, f'{package_name}.*']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
@@ -26,8 +26,6 @@ setup(
             'motion_server = warehouse_motion.motion_server:main',
             'picking_coordinator = warehouse_motion.picking_coordinator:main',
             'rfid_db_node = warehouse_motion.db.rfid_db_node:main',
-            'warehouse_mock = warehouse_motion.mock_demo:main',
-            'warehouse_scenario = warehouse_motion.mock_scenario:main',
         ],
     },
 )

@@ -3,7 +3,7 @@
 물류 창고 피킹 시나리오에서 **두산 E0509 협동로봇 + ROBOTIS RH-P12-RN 그리퍼**의
 모션 제어를 담당하는 ROS 2 (Jazzy) 패키지 모음입니다.
 
-> YOLO 인식, NFC 읽기 로직, 전체 상태 머신은 다른 팀원이 담당합니다.
+> YOLO 인식과 RFID 리더기 판독은 외부 모듈에서 담당합니다. 이 저장소의 작업 조정 노드는 판독된 UID를 받아 단일 상품 피킹 순서를 관리합니다.
 > 이 저장소는 단일 상품 피킹을 실행하는 **ROS 2 인터페이스**와 오프라인 검증 코드를 제공합니다.
 
 ---
@@ -12,8 +12,8 @@
 
 ## 로봇 연결 전 준비
 
-설정 검증 수정, 상품별 파지 정책과 RFID·주문·비전·피킹 전체 모의 시나리오를 추가했습니다.
-실물 좌표와 파지값은 미설정 상태를 유지합니다. [실행 방법과 파지 동작](docs/offline-preparation.md)을 참고하세요.
+실물 실행 전에는 장비별 자세와 상품별 파지 피드백을 확인하고 교시합니다.
+로봇 없이 순서를 확인하려면 [오프라인 실행 방법](docs/offline-preparation.md)을 참고하세요.
 요청 형식과 다음 순서는 [연결 초안](docs/integration-contract.md)에 있습니다.
 D455를 이용한 물체 폭 추정과 자동 열림 폭은 추후 검토합니다.
 
@@ -23,7 +23,7 @@ D455를 이용한 물체 폭 추정과 자동 열림 폭은 추후 검토합니�
 3. [개발 환경](#3-개발-환경)
 4. [설계 결정](#4-설계-결정)
 5. [바닥 높이 안전장치 (2중)](#5-바닥-높이-안전장치-2중)
-6. [패키지 구조 (예정)](#6-패키지-구조-예정)
+6. [패키지 구조](#6-패키지-구조)
 7. [서비스 인터페이스](#7-서비스-인터페이스)
 8. [마일스톤](#8-마일스톤)
 9. [안전 규칙](#9-안전-규칙)
@@ -145,28 +145,28 @@ ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
 이동 **경로**(특히 `movej`)나 그리퍼 옆 **NFC 리더기의 충돌**은 막지 못하므로
 **펜던트 안전 영역 설정을 반드시 권장**합니다.
 
-## 6. 패키지 구조 (예정)
+## 6. 패키지 구조
 
+```text
+warehouse_interfaces/              # MoveToPose, PickPlace, QueryRfidTag 서비스 정의
+warehouse_gripper/                 # 두산 플랜지 시리얼 기반 그리퍼 컨트롤러
+warehouse_motion/
+├── config/                        # 운영 자세와 상품 설정
+├── launch/
+│   └── picking.launch.py          # 작업 조정, 모션 서버, RFID DB 노드 실행
+├── warehouse_motion/              # 설치되는 운영 Python 모듈
+│   ├── picking_coordinator.py     # RFID 판독 대기, 작업 순서, 홈 복귀
+│   ├── motion_server.py           # 집기·운반·적치, 자세 이동
+│   ├── safe_move.py               # 목표 자세와 속도 검증
+│   ├── ros_motion_backend.py      # 두산 ROS 2 이동 서비스 호출
+│   └── db/                        # RFID UID와 상품·슬롯 매핑
+├── offline_picking/               # 모의 실행 코드와 합성 설정
+└── test/                          # 자동 검증용 단위 테스트
+docs/                              # 운영, 오프라인 검증, 연동 문서
 ```
-warehouse_interfaces/          # 커스텀 srv 정의 (ament_cmake)
-└── srv/
-    ├── PickPlace.srv
-    └── MoveToPose.srv
 
-warehouse_motion/              # 모션 제어 (ament_python)
-├── config/
-│   ├── poses.yaml             # 홈, 라벨 스캔 접근/스캔, 박스 슬롯, 경유점, floor_z, SAFETY_MARGIN
-│   ├── products.yaml          # 상품별 x, y(임시), grasp_height_from_floor, 쥐는 힘
-│   └── homography.yaml        # 픽셀 → base 변환 행렬
-├── warehouse_motion/
-│   ├── safe_move.py           # 안전 이동 래퍼 (모든 이동은 여기를 통해서만)
-│   ├── gripper_node.py        # 그리퍼 열기/닫기/위치 읽기 서비스
-│   ├── teach_tool.py          # 교시 도우미 + 바닥 측정 모드
-│   ├── calibrate_homography.py
-│   └── pick_place_node.py     # PickPlace / MoveToPose 서비스 서버
-└── test/
-    └── test_safe_move.py      # 하한선 차단 단위 테스트 (로봇 미사용)
-```
+`warehouse_motion`을 빌드하면 `picking_coordinator`, `motion_server`, `rfid_db_node` 세 실행 명령이 설치됩니다.
+오프라인 코드는 소스 디렉터리에서 Python 모듈로 실행합니다. [오프라인 실행 방법](docs/offline-preparation.md)을 참고하세요.
 
 ### `safe_move` 규칙
 - 로봇을 움직이는 모든 코드는 `movel`/`movej`를 **직접 호출하지 않고** 이 래퍼만 사용
@@ -186,8 +186,8 @@ warehouse_motion/              # 모션 제어 (ament_python)
 현재 가짜 실행기의 취소 검사는 실물 이동 도중 정지를 보장하지 않습니다.
 
 ### 실패 처리
-이동 실패, 잡기 실패(그리퍼가 끝까지 닫힘), 하한선 위반 시
-→ **정지 요청과 상태 보고**를 우선한다. 자동 홈 복귀나 자동 해제를 하지 않는다. 실제 복구는 파지 상태와 경로를 확인한 뒤 수행한다.
+UID 판독 실패 시 리더기 접근점으로 후퇴한 뒤 홈으로 복귀합니다.
+이동·파지 결과가 불확실하면 오류를 반환하고 다음 작업을 막습니다. 작업자가 파지 상태와 경로를 확인한 뒤 복구합니다.
 
 ## 8. 마일스톤
 
@@ -196,15 +196,15 @@ warehouse_motion/              # 모션 제어 (ament_python)
 | # | 단계 | 주요 내용 | 상태 |
 |---|---|---|---|
 | 1 | 환경 확인 | 현재 TCP 이름·오프셋 확인 방법, 카메라 토픽, 필요한 dsr 서비스 목록 (이동, 현재 좌표, fkin 등) | 🟨 소스 조사 완료, 드라이버 실행 후 재확인 필요 → [조사 결과](#마일스톤-1-환경-확인-결과) |
-| 2 | 그리퍼 제어 확보 (**블로커**) | 연결 방식(툴 플랜지 vs `/dev/ttyUSB*`), 플랜지 시리얼/Modbus/DRL 서비스 조사 → `gripper_node` 구현. 오래 걸리면 스텁으로 두고 병행 | 🟨 조사 중 → [조사 결과](#마일스톤-2-그리퍼-조사-결과) |
+| 2 | 그리퍼 제어 | 플랜지 시리얼 Modbus RTU 컨트롤러 | 구현·빌드 완료, 실물 통신 검증 필요 |
 | 3 | 패키지 생성 | `warehouse_motion` + `poses.yaml`, `products.yaml` | 구현 완료 |
 | 4 | 교시 도우미 | 엔터 → 현재 posx/posj 읽기 → 이름 입력 → YAML 저장. 바닥 측정 모드(최대/최소/차이), NFC 돌출 측정 안내 | ⬜ |
 | 5 | `safe_move` 래퍼 | z 하한선·유한값·속도 검사 + 단위 테스트 | 오프라인 검증 완료 |
 | 6 | 펜던트 안전 영역 가이드 | 하한값 계산, 설정 절차, 승인 필요 여부, 저속 검증 절차, 설정 불가 시 주의사항 | ⬜ |
-| 7 | 고정 좌표 pick & place | 합성 좌표 5종 데모와 가짜 주문 수량 반복 | 모의 실행 검증, 실물 미검증 |
+| 7 | 고정 좌표 pick & place | 교시 좌표 기반 단일 상품 운영 흐름 | 구현 완료, 실물 검증 필요 |
 | 8 | 비전 좌표·물체 폭 | D455 깊이·보정과 자동 열림 폭 | 추후 고려사항 |
-| 9 | ROS 인터페이스 | 요청 계약 초안 → 팀 합의 → Action/Service 구현 | 초안·Python 검증만 구현 |
-| 10 | 실패 처리 | 정지 요청·오류 보고, 자동 복귀·해제 금지 | 오프라인 검증, 실물 정지 확인 필요 |
+| 9 | ROS 인터페이스 | 단일 상품 운영 서비스 | 서비스 구현 완료, Action 추후 검토 |
+| 10 | 실패 처리 | UID 실패 시 홈 복귀, 이동·파지 오류 시 다음 작업 차단 | 모의 호출 검증, 실물 검증 필요 |
 
 ### 마일스톤 1: 환경 확인 결과
 
@@ -233,26 +233,11 @@ warehouse_motion/              # 모션 제어 (ament_python)
 - `modbus/*` 는 Modbus **TCP**(IP·포트) 전용 → 손목 RS-485 장치에는 해당 없음
 - 카메라: 개발 PC USB 에 RealSense 미검출, `realsense2_camera` 미설치 → 연결 PC 확인 필요
 
-### 마일스톤 2: 그리퍼 조사 결과
+### 마일스톤 2: 그리퍼 제어
 
-| 확인 | 결과 | 의미 |
-|---|---|---|
-| `/dev/ttyUSB*`, `/dev/ttyACM*` | 없음 | PC 직접 연결(U2D2) 아님 |
-| ROBOTIS 공식 ROS 패키지 | `/dev/ttyUSB0`, 4 Mbps Dynamixel 전제 | 손목 연결 구성에는 그대로 사용 불가 |
-| 두산 ROS 서비스 | 손목 시리얼 서비스 없음 (`SerialSendData.srv` 는 미등록) | ROS 서비스로 직접 제어 불가 |
-| 컨트롤러 라이브러리 `DRFS.h` | 손목 RS-485 / `FLANGE_SERIAL` 구조체 존재 | 컨트롤러는 손목 시리얼 지원 |
-| `drl/drl_start` | DRL 코드 문자열을 컨트롤러에서 실행 | **유력 경로** |
-| 기존 그리퍼 코드 | 없음 | 신규 작성 |
-
-**유력 방법**: ROS → `drl/drl_start` → DRL 이 손목 시리얼로 그리퍼 명령 전송.
-미확인: DRL 손목 시리얼 함수명, 그리퍼 통신 프로토콜(Dynamixel 2.0 / Modbus RTU)과 baud.
-
-확인 필요 (펜던트·실물):
-1. 펜던트에 그리퍼 플러그인·스킬·예제 DRL 이 있는지
-2. 펜던트로 그리퍼를 열고 닫아본 적이 있는지, 그 방법
-3. 모델명 `RH-P12-RN` / `RH-P12-RN(A)`
-4. 케이블이 연결된 손목 커넥터 단자
-5. 펜던트 TCP 이름·오프셋
+`warehouse_gripper`는 두산 드라이버의 DRFL 연결을 공유하고 툴 플랜지 시리얼로 Modbus RTU를 사용합니다.
+`status`, `open`, `close` 서비스와 설정 방법은 [그리퍼 실행 안내](warehouse_gripper/README.md)에 있습니다.
+실물에서 플랜지 포트, 상태 응답, 단독 열기·닫기, 상품별 파지 피드백을 확인해야 합니다.
 
 ## 9. 안전 규칙
 
@@ -281,7 +266,7 @@ warehouse_motion/              # 모션 제어 (ament_python)
 
 | 이슈 | 대응 |
 |---|---|
-| `/dsr01/gripper/close` 등을 제공하는 노드가 워크스페이스에 없음 | 마일스톤 2에서 제어 방법 조사 |
+| 그리퍼 서비스가 보이지 않음 | 두산 bringup 이후 `warehouse_gripper` 컨트롤러 로드 상태 확인 |
 | `~/ros2_ws/src` 안에 잘못 생성된 `build/install/log` 폴더가 있을 수 있음 | 발견 시 정리 |
 | `--symlink-install` 빌드 시 `PackageNotFoundError: No package metadata` | 해당 패키지 build/install 폴더 삭제 후 옵션 없이 재빌드 |
 | `ROS_LOCALHOST_ONLY` / 여러 PC 연결 | 카메라·주문·로봇이 다른 PC면 DDS·ROS_DOMAIN_ID·네트워크 설정 확인 |

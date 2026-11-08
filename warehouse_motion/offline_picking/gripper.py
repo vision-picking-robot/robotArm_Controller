@@ -6,8 +6,8 @@ physical tuning of jaw geometry, current units and each product's acceptance ban
 from dataclasses import dataclass
 import time
 
-from .config_loader import ConfigError
-from .validation import finite_number
+from warehouse_motion.config_loader import ConfigError
+from warehouse_motion.validation import finite_number
 
 
 class GripError(Exception):

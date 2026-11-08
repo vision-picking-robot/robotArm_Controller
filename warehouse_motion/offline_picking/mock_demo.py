@@ -1,12 +1,12 @@
 """ROS/robot-free demonstration. No hardware backend is imported or constructed."""
 import argparse
 import json
-import os
+from pathlib import Path
 
-from .config_loader import default_config_dir, floor_limit, get_product, load_yaml
+from warehouse_motion.config_loader import floor_limit, get_product, load_yaml
 from .gripper import GripController, GripFeedback, get_grip_profile
 from .pick_place import execute_pick_place
-from .safe_move import SafeMover
+from warehouse_motion.safe_move import SafeMover
 
 
 class SimClock:
@@ -73,10 +73,11 @@ def mock_plan(grasp, slot=1):
 
 
 def run_mock_order(names, config_dir=None):
-    directory = config_dir or default_config_dir()
-    poses_cfg = load_yaml(os.path.join(directory, 'poses.yaml'))
-    products = load_yaml(os.path.join(directory, 'products.yaml'))
-    grips = load_yaml(os.path.join(directory, 'gripper_profiles.yaml'))
+    fixtures = Path(config_dir) if config_dir else Path(__file__).with_name('config')
+    shared = Path(config_dir) if config_dir else Path(__file__).resolve().parents[1] / 'config'
+    poses_cfg = load_yaml(shared / 'poses.yaml')
+    products = load_yaml(shared / 'products.yaml')
+    grips = load_yaml(fixtures / 'gripper_profiles.yaml')
     limit = floor_limit(poses_cfg, 'virtual')
     motion, clock = MockMotion(), SimClock()
     mover = SafeMover(limit.z_min, motion, 30, 30)

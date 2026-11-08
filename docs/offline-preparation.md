@@ -5,25 +5,24 @@
 
 ## 실행
 
-저장소 루트에서 가상환경에 설치합니다. Python 3.10 이상이며 ROS2 대상 환경은 별도로 확인합니다.
+저장소 루트의 `warehouse_motion/` 디렉터리에서 가상환경으로 실행합니다. 모의 코드는 소스에서만 실행합니다. Python 3.10 이상이며 ROS2 대상 환경은 별도로 확인합니다.
 
 ```bash
-python -m pip install -e "./warehouse_motion[test]"
-python -m pytest warehouse_motion/test -q
-warehouse_mock --products snack_box pet_bottle can wet_tissue doll
-warehouse_scenario
-warehouse_scenario --case unconfirmed-place
+cd warehouse_motion
+python -m pip install -e ".[test]"
+python -m pytest test -q
+python -m offline_picking.mock_demo --products snack_box pet_bottle can wet_tissue doll
+python -m offline_picking.mock_scenario
+python -m offline_picking.mock_scenario --case unconfirmed-place
 ```
 
-명령을 찾지 못하면 `python -m warehouse_motion.mock_demo --products snack_box can`을 사용합니다.
 `mock_demo`는 가짜 백엔드를 직접 생성하며 실물 드라이버를 import하지 않습니다.
 가상 파지 프로필과 실제 이동 백엔드를 섞으면 첫 동작 전 차단합니다.
 
-`warehouse_scenario`는 박스 트리거·RFID·주문 조회·비전 검출을 가짜 데이터로 연결합니다.
+`offline_picking.mock_scenario`는 박스 트리거·RFID·주문 조회·비전 검출을 가짜 데이터로 연결합니다.
 정상 사례는 상품 3개 적치 확인 후 홈 복귀까지 실행합니다.
 `--case`는 `normal`, `unknown-tag`, `missing-product`, `empty-grasp`, `unconfirmed-place`, `cancel`을 지원합니다.
 정상 종료 코드는 0, 의도한 실패/취소 사례는 1입니다.
-명령을 찾지 못하면 `python -m warehouse_motion.mock_scenario`를 사용합니다.
 실제 RFID 서버나 주문/재고 DB에 접속하지 않습니다.
 
 ## 완료한 준비

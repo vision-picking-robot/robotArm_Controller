@@ -3,15 +3,15 @@ import argparse
 import copy
 from dataclasses import asdict
 import json
-import os
+from pathlib import Path
 import threading
 
-from .config_loader import default_config_dir, floor_limit, get_product, load_yaml
+from warehouse_motion.config_loader import floor_limit, get_product, load_yaml
 from .contracts import PickRequest, identifier
 from .gripper import GripController, GripError, get_grip_profile
 from .mock_demo import MockMotion, MockGripper, SimClock, mock_plan
 from .pick_place import execute_pick_place
-from .safe_move import DR_BASE, SafeMover
+from warehouse_motion.safe_move import DR_BASE, SafeMover
 
 
 CASES = ('normal', 'unknown-tag', 'missing-product', 'empty-grasp', 'unconfirmed-place', 'cancel')
@@ -24,13 +24,14 @@ class MockScenario:
     records and reconcile physical state before implementing live retries.
     """
     def __init__(self, config_dir=None):
-        directory = config_dir or default_config_dir()
-        self.config = load_yaml(os.path.join(directory, 'mock_scenario.yaml'))
+        fixtures = Path(config_dir) if config_dir else Path(__file__).with_name('config')
+        shared = Path(config_dir) if config_dir else Path(__file__).resolve().parents[1] / 'config'
+        self.config = load_yaml(fixtures / 'mock_scenario.yaml')
         if self.config.get('mode') != 'mock':
             raise ValueError('모의 시나리오 설정만 허용합니다')
-        self.products = load_yaml(os.path.join(directory, 'products.yaml'))
-        self.grips = load_yaml(os.path.join(directory, 'gripper_profiles.yaml'))
-        self.limit = floor_limit(load_yaml(os.path.join(directory, 'poses.yaml')), 'virtual')
+        self.products = load_yaml(shared / 'products.yaml')
+        self.grips = load_yaml(fixtures / 'gripper_profiles.yaml')
+        self.limit = floor_limit(load_yaml(shared / 'poses.yaml'), 'virtual')
         self._lock = threading.Lock()
         self._history = {}
 

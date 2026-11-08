@@ -4,8 +4,8 @@ import threading
 
 import pytest
 
-from warehouse_motion.contracts import PickRequest
-from warehouse_motion.mock_scenario import MockScenario
+from offline_picking.contracts import PickRequest
+from offline_picking.mock_scenario import MockScenario
 
 
 def test_scenario_follows_order_and_confirms_three_placements_before_home():

@@ -4,10 +4,10 @@ from dataclasses import replace
 import pytest
 
 from warehouse_motion.config_loader import ConfigError, load_yaml
-from warehouse_motion.gripper import GripController, GripError, GripFeedback, get_grip_profile
-from warehouse_motion.mock_demo import MockGripper, SimClock
+from offline_picking.gripper import GripController, GripError, GripFeedback, get_grip_profile
+from offline_picking.mock_demo import MockGripper, SimClock
 
-CONFIG = load_yaml(Path(__file__).resolve().parents[1] / 'config' / 'gripper_profiles.yaml')
+CONFIG = load_yaml(Path(__file__).resolve().parents[1] / 'offline_picking' / 'config' / 'gripper_profiles.yaml')
 
 
 @pytest.mark.parametrize('name', list(CONFIG['profiles']))

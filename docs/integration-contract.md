@@ -38,7 +38,7 @@ D455 깊이를 이용한 물체 폭 추정, 자동 열림 폭 계산과 카메�
 
 ## 상품 1개 모션 요청
 
-`warehouse_motion/contracts.py`의 `PickRequest`가 아래 필드를 검사합니다.
+`warehouse_motion/offline_picking/contracts.py`의 `PickRequest`가 아래 필드를 검사합니다.
 
 ```json
 {
@@ -66,9 +66,9 @@ D455 깊이를 이용한 물체 폭 추정, 자동 열림 폭 계산과 카메�
 
 ## 전체 모의 실행
 
-`config/mock_scenario.yaml`에는 가짜 UID 하나와 상품 3개 주문이 있습니다.
+`warehouse_motion/offline_picking/config/mock_scenario.yaml`에는 가짜 UID 하나와 상품 3개 주문이 있습니다.
 실제 UID·주문·제품 DB를 읽지 않습니다. 합성 슬롯은 주문당 최대 5개입니다.
-전체 시나리오는 적치 확인 수에 따라 다음 슬롯을 배정합니다. 단순 `warehouse_mock` 데모는 기본 슬롯 1을 반복 사용합니다.
+전체 시나리오는 적치 확인 수에 따라 다음 슬롯을 배정합니다. 단순 `offline_picking.mock_demo` 데모는 기본 슬롯 1을 반복 사용합니다.
 슬롯 중심을 나누는 것 외에 박스별 점유·상품 크기·벽 간섭·해제 높이는 아직 계산하지 않습니다.
 
 ```text

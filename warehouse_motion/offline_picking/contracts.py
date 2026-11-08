@@ -1,7 +1,7 @@
 """Proposed motion boundary v1. Not a deployed ROS/network API."""
 from dataclasses import dataclass
 
-from .validation import pose6
+from warehouse_motion.validation import pose6
 
 
 def identifier(value, label):

@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 
 from warehouse_motion.config_loader import load_yaml
-from warehouse_motion.gripper import GripController, GripError, get_grip_profile
-from warehouse_motion.mock_demo import MockMotion, MockGripper, SimClock, run_mock_order
-from warehouse_motion.pick_place import execute_pick_place
+from offline_picking.gripper import GripController, GripError, get_grip_profile
+from offline_picking.mock_demo import MockMotion, MockGripper, SimClock, run_mock_order
+from offline_picking.pick_place import execute_pick_place
 from warehouse_motion.safe_move import SafeMover, SafetyLimitError
 
-GRIPS = load_yaml(Path(__file__).resolve().parents[1] / 'config' / 'gripper_profiles.yaml')
+GRIPS = load_yaml(Path(__file__).resolve().parents[1] / 'offline_picking' / 'config' / 'gripper_profiles.yaml')
 
 
 def setup(outcome='ok'):
