@@ -22,7 +22,8 @@ class RfidDbNode(Node):
         param_db_path = self.get_parameter('db_path').get_parameter_value().string_value
         db_path = param_db_path if param_db_path else None
 
-        self.bridge = RfidDatabaseBridge(db_path=db_path)
+        seed_demo = self.declare_parameter('seed_demo', True).value
+        self.bridge = RfidDatabaseBridge(db_path=db_path, seed_demo=seed_demo)
         self.get_logger().info(f'RfidDatabaseBridge initialized with DB: {self.bridge.db_path}')
 
         self.srv = self.create_service(

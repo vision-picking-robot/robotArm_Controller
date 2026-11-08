@@ -4,9 +4,11 @@
 모션 제어를 담당하는 ROS 2 (Jazzy) 패키지 모음입니다.
 
 > YOLO 인식, NFC 읽기 로직, 전체 상태 머신은 다른 팀원이 담당합니다.
-> 이 저장소는 그들이 호출할 수 있는 **ROS 2 인터페이스**를 제공하는 것이 목표입니다. 현재 실행 가능한 데모는 ROS 없는 모의 실행입니다.
+> 이 저장소는 단일 상품 피킹을 실행하는 **ROS 2 인터페이스**와 오프라인 검증 코드를 제공합니다.
 
 ---
+
+실물 단일 상품 작업의 빌드·설정·실행 방법은 [RFID 단일 상품 피킹 운영](docs/operations.md)을 참고하세요.
 
 ## 로봇 연결 전 준비
 
@@ -176,8 +178,8 @@ warehouse_motion/              # 모션 제어 (ament_python)
 
 ## 7. 서비스 인터페이스
 
-ROS 인터페이스는 미구현입니다. `warehouse_interfaces`와 실행 워커는 팀 합의 후 생성합니다.
-현재 Python `PickRequest`는 요청/주문/상품/박스/슬롯 ID와 Base 파지 자세를 검증합니다.
+단일 상품 운영 경로는 `/warehouse/run_pick_cycle`, `/warehouse/move_to_pose`, `/warehouse/pick_place`를 사용합니다.
+별도 오프라인 경로의 Python `PickRequest`는 요청/주문/상품/박스/슬롯 ID와 Base 파지 자세를 검증합니다.
 픽셀 좌표를 모션에 직접 전달하지 않습니다. [연결 초안과 예시](docs/integration-contract.md)를 참고하세요.
 
 긴 피킹 작업의 진행 보고·취소는 Action을 우선 검토하고, 자세 조회 등 짧은 요청은 Service로 분리합니다.

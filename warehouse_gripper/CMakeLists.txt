@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.16)
+project(warehouse_gripper LANGUAGES CXX)
+
+find_package(ament_cmake REQUIRED)
+find_package(controller_interface REQUIRED)
+find_package(dsr_common2 REQUIRED)
+find_package(dsr_hardware2 REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_srvs REQUIRED)
+
+add_library(${PROJECT_NAME} SHARED src/gripper_controller.cpp)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+ament_target_dependencies(${PROJECT_NAME}
+  controller_interface dsr_hardware2 pluginlib rclcpp std_srvs)
+target_link_libraries(${PROJECT_NAME} dsr_common2::drfl)
+pluginlib_export_plugin_description_file(controller_interface gripper_plugin.xml)
+install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION lib)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+ament_package()

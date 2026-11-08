@@ -12,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools', 'PyYAML>=6'],
     zip_safe=True,
@@ -23,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'motion_server = warehouse_motion.motion_server:main',
+            'picking_coordinator = warehouse_motion.picking_coordinator:main',
             'rfid_db_node = warehouse_motion.db.rfid_db_node:main',
             'warehouse_mock = warehouse_motion.mock_demo:main',
             'warehouse_scenario = warehouse_motion.mock_scenario:main',

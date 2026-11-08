@@ -42,7 +42,7 @@ class ProductInfo:
 
 
 class RfidDatabaseBridge:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, *, seed_demo: bool = True):
         if db_path is None:
             download_db = os.path.expanduser('~/Downloads/rfid.db')
             if os.path.exists(download_db):
@@ -54,7 +54,7 @@ class RfidDatabaseBridge:
         else:
             self.db_path = str(db_path)
 
-        self._initialize()
+        self._initialize(seed_demo)
 
     @contextmanager
     def _connect(self):
@@ -63,7 +63,7 @@ class RfidDatabaseBridge:
             conn.execute('PRAGMA foreign_keys=ON')
             yield conn
 
-    def _initialize(self):
+    def _initialize(self, seed_demo):
         with self._connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS product_tag_mappings (
@@ -80,12 +80,13 @@ class RfidDatabaseBridge:
                     status VARCHAR(20) NOT NULL DEFAULT 'READY'
                 );
             ''')
-            db.executemany('''
-                INSERT OR IGNORE INTO product_tag_mappings
-                (tag_uid, sku_code, product_name, category, target_class_id, yolo_class_name,
-                 inbound_at, expired_at, retail_price, target_box_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', DEFAULT_SEEDS)
+            if seed_demo:
+                db.executemany('''
+                    INSERT OR IGNORE INTO product_tag_mappings
+                    (tag_uid, sku_code, product_name, category, target_class_id, yolo_class_name,
+                     inbound_at, expired_at, retail_price, target_box_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', DEFAULT_SEEDS)
 
     def get_product_by_uid(self, tag_uid: str) -> Optional[ProductInfo]:
         """RFID 태그 UID로 상품 정보 및 대상 박스 슬롯 번호 조회."""

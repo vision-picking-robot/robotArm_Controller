@@ -1,177 +1,209 @@
-"""모션 서비스 서버 노드 (motion_server).
-
-외부(오케스트레이터, YOLO, RFID)로부터 다음 요청을 받아 안전하게 처리한다:
-  1. /warehouse/move_to_pose (warehouse_interfaces/srv/MoveToPose):
-     - poses.yaml 에 등록된 자세(home, label_scan_approach, label_scan 등)로 이동
-  2. /warehouse/pick_place (warehouse_interfaces/srv/PickPlace):
-     - YOLO 검출 좌표와 슬롯 번호로 안전하게 Pick & Place 수행
-"""
+"""Serve taught robot poses and execute a single physical pick/place."""
 import os
+import time
+
 import rclpy
+from dsr_msgs2.srv import GetRobotSystem
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
+from std_srvs.srv import Trigger
 
 from warehouse_interfaces.srv import MoveToPose, PickPlace
 from warehouse_motion import config_loader as c
-from warehouse_motion.safe_move import (
-    SafeMover, DsrBackend, SafetyLimitError, MotionError, DR_BASE, DR_MV_MOD_ABS
-)
+from warehouse_motion.ros_calls import call_service, spin_node
+from warehouse_motion.ros_motion_backend import RosMotionBackend
+from warehouse_motion.safe_move import DR_BASE, MotionError, SafeMover, SafetyLimitError
+from warehouse_motion.validation import pose6
 
 
 class MotionServer(Node):
     def __init__(self):
         super().__init__('warehouse_motion_server')
-
-        # 파라미터 선언 (기본값 real)
-        self.declare_parameter('mode', 'real')
-        self.mode = self.get_parameter('mode').get_parameter_value().string_value
-        self.get_logger().info(f'Starting MotionServer in [{self.mode}] mode')
-
-        # 설정 파일 로드
-        config_dir = c.default_config_dir()
+        self.mode = self.declare_parameter('mode', 'real').value
+        robot_name = self.declare_parameter('robot_name', 'dsr01').value.strip('/')
+        config_dir = self.declare_parameter('config_dir', '').value or c.default_config_dir()
         self.poses_cfg = c.load_yaml(os.path.join(config_dir, 'poses.yaml'))
         self.products_cfg = c.load_yaml(os.path.join(config_dir, 'products.yaml'))
-
-        # 안전 하한선 계산
         self.floor_limit = c.floor_limit(self.poses_cfg, self.mode)
-        self.get_logger().info(
-            f'Floor Limit: floor_z={self.floor_limit.floor_z:.1f}mm, '
-            f'z_min={self.floor_limit.z_min:.1f}mm'
-        )
+        motion = self.poses_cfg.get('motion') or {}
+        self.max_vel = motion.get('max_vel', 30.0)
+        self.max_acc = motion.get('max_acc', 30.0)
 
-        # 모션 및 속도 파라미터
-        motion_cfg = self.poses_cfg.get('motion', {})
-        self.approach_offset_z = float(motion_cfg.get('approach_offset_z', 100.0))
-        self.max_vel = float(motion_cfg.get('max_vel', 30.0))
-        self.max_acc = float(motion_cfg.get('max_acc', 30.0))
-
-        # SafeMover 초기화
-        # 실제 DsrBackend 연결 (노드 기반)
-        try:
-            backend = DsrBackend()
-        except Exception as e:
-            self.get_logger().warn(f'DsrBackend init failed ({e}), using mock/direct service fallback')
-            backend = None
-
+        self.io = Node('warehouse_motion_io', context=self.context)
+        self.io_executor = SingleThreadedExecutor(context=self.context)
+        self.io_executor.add_node(self.io)
         self.mover = SafeMover(
-            z_min=self.floor_limit.z_min,
-            backend=backend,
-            max_vel=self.max_vel,
-            max_acc=self.max_acc,
-            logger=self.get_logger()
+            self.floor_limit.z_min, RosMotionBackend(self.io, self.io_executor, robot_name),
+            self.max_vel, self.max_acc, self.get_logger(),
         )
+        self.robot_system = self.io.create_client(
+            GetRobotSystem, f'/{robot_name}/system/get_robot_system'
+        )
+        gripper_prefix = self.declare_parameter(
+            'gripper_service_prefix', f'/{robot_name}/warehouse_gripper'
+        ).value.rstrip('/')
+        self.gripper = {
+            name: self.io.create_client(Trigger, f'{gripper_prefix}/{name}')
+            for name in ('status', 'open', 'close')
+        }
+        self.create_service(MoveToPose, '/warehouse/move_to_pose', self.handle_move_to_pose)
+        self.create_service(PickPlace, '/warehouse/pick_place', self.handle_pick_place)
 
-        # 서비스 등록
-        self.srv_move_to_pose = self.create_service(
-            MoveToPose, '/warehouse/move_to_pose', self.handle_move_to_pose
-        )
-        self.srv_pick_place = self.create_service(
-            PickPlace, '/warehouse/pick_place', self.handle_pick_place
-        )
+    def check_robot_system(self):
+        result = call_service(self.io_executor, self.robot_system, GetRobotSystem.Request(), 3.0)
+        if not result.success or result.robot_system != {'real': 0, 'virtual': 1}[self.mode]:
+            raise MotionError(f'Connected robot does not match configured mode {self.mode}')
 
-        self.get_logger().info('Ready for MoveToPose and PickPlace services.')
+    def move_line(self, posx):
+        self.mover.movel(posx, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
+
+    def move_to_pose(self, name):
+        if name in ('label_scan', 'label_scan_retract'):
+            scan = c.get_pose(self.poses_cfg, 'label_scan', self.mode)['posx']
+            if name == 'label_scan_retract':
+                approach = c.get_pose(self.poses_cfg, 'label_scan_approach', self.mode)['posx']
+                scan = [*scan[:2], approach[2], *scan[3:]]
+            self.move_line(scan)
+            return
+
+        pose = c.get_pose(self.poses_cfg, name, self.mode)
+        if pose.get('posj') is not None:
+            self.mover.movej(pose['posj'], vel=self.max_vel, acc=self.max_acc)
+        else:
+            self.move_line(pose['posx'])
 
     def handle_move_to_pose(self, request, response):
-        pose_name = request.pose_name
-        self.get_logger().info(f'[MoveToPose] Request: {pose_name}')
-
         try:
-            pose = c.get_pose(self.poses_cfg, pose_name, self.mode)
-            posj = pose.get('posj')
-            posx = pose.get('posx')
-
-            # posj 가 있으면 관절 공간 이동 (경로 케이블 꼬임 방지)
-            if posj is not None:
-                self.mover.movej(posj, vel=self.max_vel, acc=self.max_acc)
-            elif posx is not None:
-                self.mover.movel(posx, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-            else:
-                response.success = False
-                response.message = f'자세 {pose_name} 의 좌표가 비어 있습니다'
-                return response
-
+            self.check_robot_system()
+            self.move_to_pose(request.pose_name)
             response.success = True
-            response.message = f'Successfully moved to {pose_name}'
-        except (c.ConfigError, SafetyLimitError, MotionError) as e:
-            self.get_logger().error(f'[MoveToPose] Error: {e}')
-            response.success = False
-            response.message = str(e)
-
+            response.message = f'Moved to {request.pose_name}'
+        except (c.ConfigError, SafetyLimitError, MotionError, RuntimeError, TimeoutError,
+                ValueError, TypeError) as error:
+            response.message = str(error)
         return response
+
+    def gripper_call(self, command):
+        result = call_service(self.io_executor, self.gripper[command], Trigger.Request(), 4.0)
+        if not result.success:
+            raise MotionError(f'Gripper {command}: {result.message}')
+        return result.message
+
+    def wait_for_gripper(self, condition, description):
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline:
+            try:
+                fields = dict(part.split('=', 1) for part in self.gripper_call('status').split())
+                moving, position, current = (
+                    int(fields[key]) for key in ('moving', 'position_pulses', 'current')
+                )
+            except (KeyError, ValueError) as error:
+                raise MotionError('Malformed gripper feedback') from error
+            if moving == 0 and condition(position, abs(current)):
+                return
+            time.sleep(0.1)
+        raise MotionError(f'Gripper did not confirm {description}')
+
+    def grasp_feedback(self, product_name):
+        feedback = self.products_cfg['products'][product_name]['real'].get('grasp_feedback') or {}
+        low, high, current = (
+            feedback.get(key) for key in ('min_position_pulses', 'max_position_pulses', 'min_current')
+        )
+        if not all(type(value) is int for value in (low, high, current)):
+            raise c.ConfigError(f'{product_name}: calibrated grasp_feedback is required')
+        if not 0 < low <= high < 740 or current <= 0:
+            raise c.ConfigError(f'{product_name}: invalid grasp_feedback range')
+        return low, high, current
+
+    def pick_place(self, request):
+        if self.mode != 'real':
+            raise MotionError('Physical PickPlace requires real mode')
+        product = c.get_product(
+            self.products_cfg, request.product_name, self.mode, self.floor_limit
+        )
+        slot = c.get_box_slot(self.poses_cfg, request.box_slot, self.mode)['posx']
+        home = c.get_pose(self.poses_cfg, 'home', self.mode)['posx']
+        via = c.get_pose(self.poses_cfg, 'via_point', self.mode)['posx']
+        if any(pose is None for pose in (slot, home, via)):
+            raise c.ConfigError('PickPlace requires taught Cartesian home, via and slot poses')
+
+        low, high, min_current = self.grasp_feedback(request.product_name)
+
+        def grasped(position, current):
+            return low <= position <= high and current >= min_current
+
+        def opened(position, _current):
+            return abs(position) <= 10
+
+        home_z = home[2]
+        carry_z = home_z + 150.0
+        place_z = product.grasp_z + 10.0
+        if home_z <= max(product.grasp_z, place_z):
+            raise c.ConfigError('Home Z must clear pick and place Z')
+
+        angle = request.angle if request.angle != 0.0 else product.rz
+        pick_orientation = [0.0, 180.0, angle]
+        approach = [product.x, product.y, home_z, *pick_orientation]
+        pick = [product.x, product.y, product.grasp_z, *pick_orientation]
+        lift = [product.x, product.y, carry_z, *pick_orientation]
+        carry_via = [*via[:2], carry_z, *pick_orientation]
+        carry_box = [*slot[:2], carry_z, *slot[3:]]
+        place = [*slot[:2], place_z, *slot[3:]]
+        retreat = [*slot[:2], home_z, *slot[3:]]
+
+        # Check every Cartesian target before opening the gripper or moving the arm.
+        for pose in (approach, pick, lift, carry_via, carry_box, place, retreat, via):
+            pose6(pose, 'pick/place pose')
+            if pose[2] < self.floor_limit.z_min:
+                raise SafetyLimitError('Pick/place target below Z limit')
+
+        self.gripper_call('status')
+        self.move_line(approach)
+        self.gripper_call('open')
+        self.wait_for_gripper(opened, 'open')
+        self.move_line(pick)
+        self.gripper_call('close')
+        self.wait_for_gripper(grasped, 'grasp')
+        self.move_line(lift)
+        self.wait_for_gripper(grasped, 'grasp after lift')
+        self.move_line(carry_via)
+        self.move_line(carry_box)
+        self.move_line(place)
+        self.gripper_call('open')
+        self.wait_for_gripper(opened, 'release position')
+        self.move_line(retreat)
+        self.move_line(via)
 
     def handle_pick_place(self, request, response):
-        prod_name = request.product_name
-        box_slot = request.box_slot
-        self.get_logger().info(f'[PickPlace] Request: {prod_name} -> Box Slot {box_slot}')
-
         try:
-            # 1. 대상 상품 및 박스 슬롯 유효성 검사
-            target = c.get_product(self.products_cfg, prod_name, self.mode, self.floor_limit)
-            slot_pose = c.get_box_slot(self.poses_cfg, box_slot, self.mode)
-
-            # 2. 목표 피킹 좌표 결정 (YOLO 픽셀/캘리브레이션 또는 사전 정의 좌표)
-            # request.u, request.v 가 0 이상이면 캘리브레이션 변환값 사용 가능
-            # 현재 1차 버전은 캘리브레이션 전 등록 좌표 사용
-            pick_x = target.x
-            pick_y = target.y
-            pick_z = target.grasp_z
-
-            # 짧은 쪽 파지 각도 반영
-            rz = request.angle if request.angle != 0.0 else target.rz
-
-            # 3. Pick 시퀀스 실행
-            # 3-1. 접근 (Approach)
-            app_pos = [pick_x, pick_y, pick_z + self.approach_offset_z, 0.0, 180.0, rz]
-            self.mover.movel(app_pos, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-
-            # 3-2. 하강 및 파지 (Grasp)
-            pick_pos = [pick_x, pick_y, pick_z, 0.0, 180.0, rz]
-            self.mover.movel(pick_pos, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-            # TODO: 그리퍼 닫기 (gripper.close())
-
-            # 3-3. 상승 (Retract)
-            self.mover.movel(app_pos, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-
-            # 4. 경유 또는 박스 슬롯 이동 (Place)
-            slot_posx = slot_pose['posx']
-            slot_posj = slot_pose.get('posj')
-            slot_app_pos = [slot_posx[0], slot_posx[1], slot_posx[2] + self.approach_offset_z] + slot_posx[3:6]
-
-            # 박스 상공 접근
-            self.mover.movel(slot_app_pos, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-            # 박스 하강
-            self.mover.movel(slot_posx, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-            # TODO: 그리퍼 열기 (gripper.open())
-            # 박스 상공 복귀
-            self.mover.movel(slot_app_pos, vel=self.max_vel, acc=self.max_acc, ref=DR_BASE)
-
+            self.check_robot_system()
+            self.pick_place(request)
             response.success = True
-            response.message = f'Successfully picked {prod_name} and placed into box {box_slot}'
-
-        except (c.ConfigError, SafetyLimitError, MotionError) as e:
-            self.get_logger().error(f'[PickPlace] Error: {e}')
-            # 안전 자세(Home) 복귀 시도
-            try:
-                home_pose = c.get_pose(self.poses_cfg, 'home', self.mode)
-                if home_pose.get('posj'):
-                    self.mover.movej(home_pose['posj'], vel=self.max_vel, acc=self.max_acc)
-            except Exception:
-                pass
-            response.success = False
-            response.message = str(e)
-
+            response.message = 'Pick/place motion and gripper feedback completed'
+        except (c.ConfigError, SafetyLimitError, MotionError, RuntimeError, TimeoutError,
+                ValueError, TypeError) as error:
+            response.message = str(error)
+            self.get_logger().error(f'Pick/place stopped: {error}')
         return response
+
+    def destroy_node(self):
+        self.io_executor.shutdown()
+        self.io.destroy_node()
+        return super().destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MotionServer()
+    node = None
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
+        node = MotionServer()
+        spin_node(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if node is not None:
+            node.destroy_node()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
