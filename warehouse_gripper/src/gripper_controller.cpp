@@ -2,14 +2,14 @@
 #include <controller_interface/controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include "warehouse_gripper/flange_serial.hpp"
+#include "warehouse_gripper/modbus.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 // Exported by dsr_hardware2. Use only with a single Doosan arm in this manager.
 extern void * get_drfl(const char * robot_name);
@@ -18,47 +18,32 @@ namespace warehouse_gripper
 {
 namespace
 {
-using Frame = std::vector<uint8_t>;
 using Trigger = std_srvs::srv::Trigger;
 constexpr uint8_t slave_id = 1;
-constexpr uint8_t torque_register = 0;  // Register 256, low byte
-constexpr uint8_t current_register = 19;  // Register 275, low byte
-constexpr uint8_t goal_register = 26;  // Register 282, low byte
-constexpr uint8_t feedback_register = 29;  // Register 285, low byte
-
-uint16_t crc16(const Frame & frame, size_t size)
-{
-  uint16_t crc = 0xffff;
-  for (size_t i = 0; i < size; ++i) {
-    crc ^= frame[i];
-    for (int bit = 0; bit < 8; ++bit) {
-      crc = (crc >> 1) ^ ((crc & 1) ? 0xa001 : 0);
-    }
-  }
-  return crc;
-}
+constexpr uint16_t feedback_register = 285;
 
 class FlangeSession
 {
 public:
   FlangeSession(DRAFramework::CDRFLEx & robot, int port) : robot_(robot), port_(port)
   {
-    if (!robot_.flange_serial_open(port_, 57600)) {
-      throw std::runtime_error("Could not open flange serial port " + std::to_string(port_));
+    if (!flange::open(
+        robot_, port_, 57600, BYTE_SIZE_EIGHTBITS, PARITY_CHECK_NONE, STOPBITS_ONE, 0))
+    {
+      throw std::runtime_error("Could not open flange serial port " + std::to_string(port_) +
+        "; stop the DART task/other serial clients and check the installed DRFL version");
     }
   }
 
-  ~FlangeSession() { robot_.flange_serial_close(port_); }
+  ~FlangeSession() { flange::close(robot_, port_, 0); }
 
   Frame exchange(Frame request, size_t expected_size)
   {
-    const auto crc = crc16(request, request.size());
-    request.push_back(static_cast<uint8_t>(crc));
-    request.push_back(static_cast<uint8_t>(crc >> 8));
+    request = with_crc(request);
 
     // Discard any late reply from a previous transaction.
     for (int i = 0; i < 8; ++i) {
-      const auto stale = robot_.flange_serial_read(0.02f, port_);
+      const auto stale = flange::read(robot_, 0.02f, port_, 0);
       if (!stale || stale->_iSize <= 0) {
         break;
       }
@@ -67,8 +52,8 @@ public:
       }
     }
 
-    if (!robot_.flange_serial_write(
-        static_cast<int>(request.size()), reinterpret_cast<char *>(request.data()), port_))
+    if (!flange::write(robot_,
+        static_cast<int>(request.size()), reinterpret_cast<char *>(request.data()), port_, 0))
     {
       throw std::runtime_error("Flange serial write failed");
     }
@@ -76,7 +61,7 @@ public:
     Frame reply;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
     while (std::chrono::steady_clock::now() < deadline) {
-      const auto chunk = robot_.flange_serial_read(0.05f, port_);
+      const auto chunk = flange::read(robot_, 0.05f, port_, 0);
       if (!chunk || chunk->_iSize <= 0) {
         continue;
       }
@@ -89,24 +74,11 @@ public:
       if (reply.size() < frame_size) {
         continue;
       }
-      const auto received_crc = reply[frame_size - 2] | (reply[frame_size - 1] << 8);
-      if (reply.size() != frame_size || reply[0] != slave_id ||
-        crc16(reply, frame_size - 2) != received_crc)
-      {
-        throw std::runtime_error("Invalid Modbus RTU reply (size, slave ID or CRC)");
-      }
-      if (exception) {
-        throw std::runtime_error("Modbus exception " + std::to_string(reply[2]));
-      }
-      if (reply[1] != request[1] ||
-        (request[1] == 3 ? reply[2] != frame_size - 5 :
-        !std::equal(reply.begin(), reply.begin() + 6, request.begin())))
-      {
-        throw std::runtime_error("Modbus RTU reply does not match request");
-      }
+      validate_reply(request, reply, expected_size);
       return reply;
     }
-    throw std::runtime_error("Timed out waiting for the gripper Modbus RTU reply");
+    throw std::runtime_error("No Modbus reply (57600 8N1, slave 1); check DART serial ownership, "
+      "flange port and the DRFL/controller version. Do not retry a movement automatically");
   }
 
 private:
@@ -116,16 +88,16 @@ private:
 
 std::string read_status(FlangeSession & serial)
 {
-  const auto reply = serial.exchange({slave_id, 3, 1, feedback_register, 0, 7}, 19);
-  const auto word = [&reply](size_t index) -> uint32_t {
-    return (reply[3 + 2 * index] << 8) | reply[4 + 2 * index];
-  };
-  const auto position = word(5) | (word(6) << 16);
-  const auto signed_position = static_cast<int64_t>(position) -
-    ((position & 0x80000000u) ? 0x100000000LL : 0);
-  const int current = static_cast<int>(word(2)) - ((word(2) & 0x8000) ? 65536 : 0);
-  return "position_pulses=" + std::to_string(signed_position) +
-    " current=" + std::to_string(current) + " moving=" + std::to_string(word(0));
+  const auto reply = serial.exchange(read_registers(slave_id, feedback_register, 7), 19);
+  const auto feedback = decode_feedback(reply);
+  const auto fault = register_word(serial.exchange(read_registers(slave_id, 259, 1), 7), 0) & 0xff;
+  if (fault != 0) {
+    throw std::runtime_error("Gripper Hardware Error Status=" + std::to_string(fault));
+  }
+  return "position_pulses=" + std::to_string(feedback.position) +
+    " current=" + std::to_string(feedback.current) +
+    " moving=" + std::to_string(feedback.moving) +
+    " moving_status=" + std::to_string(feedback.moving_status);
 }
 }  // namespace
 
@@ -160,6 +132,9 @@ public:
     status_ = make_service("status", -1);
     open_ = make_service("open", 0);
     close_ = make_service("close", 740);
+    RCLCPP_INFO(get_node()->get_logger(),
+      "DART-compatible RH-P12-RN(A): port=%d, 57600 8N1, ID=1, 400mA, open=0, close=740; "
+      "enable_motion defaults to false", port_);
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -210,7 +185,8 @@ private:
             (!get_node()->get_parameter("enable_motion").as_bool() ||
             robot->get_robot_state() != STATE_STANDBY))
           {
-            throw std::runtime_error("Motion requires enable_motion=true and robot STANDBY");
+            throw std::runtime_error("Motion blocked: enable_motion must be true and robot must "
+              "be STANDBY. Stop the DART task before ROS control");
           }
 
           FlangeSession serial(*robot, port_);
@@ -218,12 +194,9 @@ private:
             response->message = read_status(serial);
           } else {
             read_status(serial);
-            serial.exchange({slave_id, 6, 1, current_register, 1, 144}, 8);  // 400 mA
-            serial.exchange({
-              slave_id, 16, 1, goal_register, 0, 2, 4,
-              static_cast<uint8_t>(target >> 8), static_cast<uint8_t>(target), 0, 0}, 8);
-            // Set the new goal before enabling torque to avoid executing an old goal.
-            serial.exchange({slave_id, 6, 1, torque_register, 0, 1}, 8);
+            command_position([&serial](Frame request, size_t size) {
+                return serial.exchange(request, size);
+              }, slave_id, target);
             response->message = "Target acknowledged; use status to verify movement";
           }
           response->success = true;
