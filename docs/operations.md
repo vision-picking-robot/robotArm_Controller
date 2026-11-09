@@ -9,9 +9,9 @@ source install/setup.bash
 ```
 
 1. 실제 E0509 한 대의 드라이버를 실행하고 자동 모드, TCP, 작업 영역을 확인합니다.
-2. [그리퍼 컨트롤러](../warehouse_gripper/README.md)를 로드하고 상태 조회와 단독 열기·닫기를 확인합니다.
+2. DART 작업을 종료한 뒤 [그리퍼 컨트롤러](../warehouse_gripper/README.md)를 별도 spawner로 로드하고 `active` 상태를 확인합니다. `picking.launch.py`만으로는 그리퍼가 로드되지 않습니다. `status` 조회 성공 후 `enable_motion`을 켜서 단독 열기·닫기를 확인합니다. DART에서 검증한 57,600bps·ID 1·400mA·0~740펄스를 사용합니다.
 3. 운영 PC에 `poses.yaml`과 `products.yaml`을 준비합니다. 장비마다 홈, 리더기 접근·판독, 경유지, 슬롯, 상품 좌표 및 바닥 높이를 교시합니다. 리더기 접근점과 라벨 판독점은 같은 X·Y에서 수직 접근·후퇴할 수 있어야 합니다. 작업대·박스·주변 상품과 실제 이동 경로의 간섭을 확인합니다.
-4. 상품별 실제 파지 시험에서 얻은 위치·전류 판정 범위를 `products.<상품>.real.grasp_feedback`에 설정합니다. 필수 정수 필드는 `min_position_pulses`, `max_position_pulses`, `min_current`입니다. `min_current` 단위는 그리퍼 상태 응답의 전류 레지스터 단위입니다. 범위가 없으면 상품 집기를 시작하지 않습니다. 열림 완료는 목표 0에서 ±10펄스이고 이동이 끝난 상태로 판정합니다.
+4. 상품별 실제 파지 시험에서 얻은 위치·전류 판정 범위를 `products.<상품>.real.grasp_feedback`에 설정합니다. 필수 정수 필드는 `min_position_pulses`, `max_position_pulses`, `min_current`입니다. `min_current` 단위는 mA이며 전류 절댓값을 비교합니다. 범위가 없으면 상품 집기를 시작하지 않습니다. 열림 완료는 목표 0에서 ±10펄스이고 이동이 끝난 상태로 판정합니다. 열림·파지 조건은 0.1초 간격으로 연속 2회 확인합니다. `Moving Status`는 별도 필드이며 정지 판정에 합산하지 않습니다.
 5. RFID 리더가 판독 중인 UID를 `std_msgs/msg/String`으로 발행하도록 연결합니다. 발행 토픽은 아래에서 설정할 수 있습니다. 판독 자세에서 구독이 시작된 뒤 발행된 UID를 사용하며, 빈 문자열은 판독 실패입니다. 발행자는 이전 작업의 UID를 재전송하지 않아야 합니다. RFID DB에는 UID별 상품과 슬롯 매핑이 필요합니다.
 
 ```bash
