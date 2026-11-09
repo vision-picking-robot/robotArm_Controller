@@ -5,6 +5,9 @@
 Modbus RTU로 통신합니다. 팔 관절 인터페이스는 점유하지 않습니다.
 여러 두산 팔이 같은 프로세스에 연결된 구성에서는 사용하지 않습니다.
 
+Ubuntu 24.04·ROS 2 Jazzy에서의 갱신·빌드·상태 조회·단독 시험은
+[우분투 실습 순서](../docs/ubuntu-jazzy-gripper.md)를 따릅니다.
+
 ## DART 성공 코드와의 차이
 
 Task Writer에서 성공한 코드는 컨트롤러 안의 DRL `flange_serial_*` 함수를 사용합니다.
@@ -60,6 +63,9 @@ ros2 run controller_manager spawner warehouse_gripper \
 ros2 service call /dsr01/warehouse_gripper/status std_srvs/srv/Trigger '{}'
 ```
 
+같은 로드 작업을 `ros2 launch warehouse_gripper gripper.launch.py`로 실행할 수 있습니다.
+기존 두산 드라이버의 controller manager를 사용하고, 기본 설정은 동작 차단 상태입니다.
+
 `picking.launch.py`는 그리퍼 플러그인을 로드하지 않습니다. 위 spawner를 별도로 실행하고
 아래 조회에서 `warehouse_gripper`가 `active`인지 확인한 후 피킹을 시작합니다.
 
@@ -73,14 +79,17 @@ ros2 service call /dsr01/system/get_robot_state dsr_msgs2/srv/GetRobotState '{}'
 위치·전류·토크 레지스터에 값을 쓰지 않습니다. 기본 포트 번호는 1이며 실물 포트와
 일치하는지 확인해야 합니다. 포트 설정은 컨트롤러 구성 시 읽습니다.
 시리얼 설정은 57,600 bps, 8N1, Modbus Slave ID 1입니다.
-상태 응답 예시는 `position_pulses=0 current=0 moving=0 moving_status=49`입니다.
+상태 응답 예시는 `position_pulses=0 current=0 moving=0 moving_status=49 input_voltage_tenths=241`입니다.
 `moving_status` 값은 프로파일 상태에 따라 달라집니다.
+전압 값은 0.1V 단위입니다. 위 241은 설명용 가상 값이며 실측값이 아닙니다.
+시리얼 개방 후 500ms를 기다리고 응답을 최대 1초 동안 모읍니다. 첫 전압 읽기(40297)가
+타임아웃된 경우에만 최대 3회 시도하며, 구동 쓰기는 재전송하지 않습니다.
 
 ## 열기와 닫기
 
 먼저 상태 조회에서 정상 응답을 확인합니다. 실물 그리퍼만 시험할 수 있는 상태에서
 `enable_motion`을 켜고 서비스 한 개씩 호출합니다. 이동 명령은 로봇이 STANDBY일 때만
-전송합니다.
+전송하며 자동 모드도 확인합니다.
 
 ```bash
 ros2 param set /dsr01/warehouse_gripper enable_motion true
@@ -103,8 +112,8 @@ ros2 param set /dsr01/warehouse_gripper enable_motion false
 | --- | --- |
 | 서비스가 없음 | `warehouse_gripper` 빌드·source·spawner·로봇 네임스페이스 |
 | inactive or busy | 컨트롤러 `active` 여부, 중복 호출 여부 |
-| Motion blocked | `enable_motion=true`, 로봇 STANDBY, DART 작업 종료 |
-| Could not open / No Modbus reply | DART의 시리얼 점유, 실물 포트, 전원·배선, DRFL/컨트롤러 호환성 |
+| Motion blocked | `enable_motion=true`, 로봇 AUTO·STANDBY, DART 작업 종료 |
+| Could not open / Modbus response timeout | DART의 시리얼 점유, 실물 포트, 전원·배선, DRFL/컨트롤러 호환성 |
 | Invalid Modbus reply | CRC·ID·수신 길이, 다른 시리얼 명령과의 충돌 |
 | Operating Mode must be 5 | DART에서 성공한 장치 설정과 비교. 자동 모드 변경 없음 |
 | Hardware Error Status | 그리퍼 오류 확인·복구 후 재조회. 자동 재시도 없음 |
@@ -125,6 +134,9 @@ ros2 param set /dsr01/warehouse_gripper enable_motion false
 c++ -std=c++17 -Wall -Wextra -Werror -I warehouse_gripper/include \
   warehouse_gripper/test/test_protocol.cpp -o /tmp/gripper_protocol_test
 /tmp/gripper_protocol_test
+c++ -std=c++17 -Wall -Wextra -Werror -pthread -I warehouse_gripper/include \
+  warehouse_gripper/test/test_rtu_session.cpp -o /tmp/gripper_rtu_test
+/tmp/gripper_rtu_test
 python3 -m pytest warehouse_motion/test -q
 ```
 
