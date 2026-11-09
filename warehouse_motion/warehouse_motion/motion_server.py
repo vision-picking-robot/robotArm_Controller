@@ -83,7 +83,7 @@ class MotionServer(Node):
             response.message = str(error)
         return response
 
-    def gripper_call(self, command, timeout=6.0):
+    def gripper_call(self, command, timeout=12.0):
         result = call_service(self.io_executor, self.gripper[command], Trigger.Request(), timeout)
         if not result.success:
             raise MotionError(f'Gripper {command}: {result.message}')

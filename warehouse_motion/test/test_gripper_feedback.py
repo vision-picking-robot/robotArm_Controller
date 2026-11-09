@@ -12,7 +12,8 @@ class Clock:
 
 
 def status(position=0, moving=0, current=0):
-    return f'position_pulses={position} current={current} moving={moving} moving_status=49'
+    return (f'position_pulses={position} current={current} moving={moving} '
+            'moving_status=49 input_voltage_tenths=241')
 
 
 def test_moving_status_does_not_prevent_open_completion():

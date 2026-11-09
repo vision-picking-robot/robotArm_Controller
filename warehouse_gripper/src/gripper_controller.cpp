@@ -4,12 +4,14 @@
 #include <std_srvs/srv/trigger.hpp>
 #include "warehouse_gripper/flange_serial.hpp"
 #include "warehouse_gripper/modbus.hpp"
+#include "warehouse_gripper/rtu_session.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 // Exported by dsr_hardware2. Use only with a single Doosan arm in this manager.
 extern void * get_drfl(const char * robot_name);
@@ -22,10 +24,10 @@ using Trigger = std_srvs::srv::Trigger;
 constexpr uint8_t slave_id = 1;
 constexpr uint16_t feedback_register = 285;
 
-class FlangeSession
+class FlangePort
 {
 public:
-  FlangeSession(DRAFramework::CDRFLEx & robot, int port) : robot_(robot), port_(port)
+  FlangePort(DRAFramework::CDRFLEx & robot, int port) : robot_(robot), port_(port)
   {
     if (!flange::open(
         robot_, port_, 57600, BYTE_SIZE_EIGHTBITS, PARITY_CHECK_NONE, STOPBITS_ONE, 0))
@@ -33,52 +35,31 @@ public:
       throw std::runtime_error("Could not open flange serial port " + std::to_string(port_) +
         "; stop the DART task/other serial clients and check the installed DRFL version");
     }
+    // The flange can acknowledge OPEN before its UART accepts the first request.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
 
-  ~FlangeSession() { flange::close(robot_, port_, 0); }
+  ~FlangePort() { flange::close(robot_, port_, 0); }
 
-  Frame exchange(Frame request, size_t expected_size)
+  void write(Frame request)
   {
-    request = with_crc(request);
-
-    // Discard any late reply from a previous transaction.
-    for (int i = 0; i < 8; ++i) {
-      const auto stale = flange::read(robot_, 0.02f, port_, 0);
-      if (!stale || stale->_iSize <= 0) {
-        break;
-      }
-      if (i == 7) {
-        throw std::runtime_error("Flange receive buffer did not clear");
-      }
-    }
-
     if (!flange::write(robot_,
         static_cast<int>(request.size()), reinterpret_cast<char *>(request.data()), port_, 0))
     {
       throw std::runtime_error("Flange serial write failed");
     }
+  }
 
-    Frame reply;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
-    while (std::chrono::steady_clock::now() < deadline) {
-      const auto chunk = flange::read(robot_, 0.05f, port_, 0);
-      if (!chunk || chunk->_iSize <= 0) {
-        continue;
-      }
-      if (static_cast<size_t>(chunk->_iSize) > sizeof(chunk->_cRxd)) {
-        throw std::runtime_error("Invalid flange serial reply size");
-      }
-      reply.insert(reply.end(), chunk->_cRxd, chunk->_cRxd + chunk->_iSize);
-      const bool exception = reply.size() >= 2 && reply[1] == (request[1] | 0x80);
-      const size_t frame_size = exception ? 5 : expected_size;
-      if (reply.size() < frame_size) {
-        continue;
-      }
-      validate_reply(request, reply, expected_size);
-      return reply;
+  Frame read(float timeout)
+  {
+    const auto chunk = flange::read(robot_, timeout, port_, 0);
+    if (!chunk || chunk->_iSize <= 0) {
+      return {};
     }
-    throw std::runtime_error("No Modbus reply (57600 8N1, slave 1); check DART serial ownership, "
-      "flange port and the DRFL/controller version. Do not retry a movement automatically");
+    if (static_cast<size_t>(chunk->_iSize) > sizeof(chunk->_cRxd)) {
+      throw std::runtime_error("Invalid flange serial reply size");
+    }
+    return {chunk->_cRxd, chunk->_cRxd + chunk->_iSize};
   }
 
 private:
@@ -86,8 +67,9 @@ private:
   int port_;
 };
 
-std::string read_status(FlangeSession & serial)
+std::string read_status(RtuSession<FlangePort> & serial)
 {
+  const auto voltage = read_voltage(serial);
   const auto reply = serial.exchange(read_registers(slave_id, feedback_register, 7), 19);
   const auto feedback = decode_feedback(reply);
   const auto fault = register_word(serial.exchange(read_registers(slave_id, 259, 1), 7), 0) & 0xff;
@@ -97,7 +79,8 @@ std::string read_status(FlangeSession & serial)
   return "position_pulses=" + std::to_string(feedback.position) +
     " current=" + std::to_string(feedback.current) +
     " moving=" + std::to_string(feedback.moving) +
-    " moving_status=" + std::to_string(feedback.moving_status);
+    " moving_status=" + std::to_string(feedback.moving_status) +
+    " input_voltage_tenths=" + std::to_string(voltage);
 }
 }  // namespace
 
@@ -183,13 +166,15 @@ private:
           }
           if (target >= 0 &&
             (!get_node()->get_parameter("enable_motion").as_bool() ||
-            robot->get_robot_state() != STATE_STANDBY))
+            robot->get_robot_state() != STATE_STANDBY ||
+            robot->get_robot_mode() != ROBOT_MODE_AUTONOMOUS))
           {
             throw std::runtime_error("Motion blocked: enable_motion must be true and robot must "
-              "be STANDBY. Stop the DART task before ROS control");
+              "be AUTO/STANDBY. Stop the DART task before ROS control");
           }
 
-          FlangeSession serial(*robot, port_);
+          FlangePort port(*robot, port_);
+          RtuSession<FlangePort> serial(port);
           if (target < 0) {
             response->message = read_status(serial);
           } else {
