@@ -1,6 +1,5 @@
 """Serve taught robot poses and execute a single physical pick/place."""
 import os
-import time
 
 import rclpy
 from dsr_msgs2.srv import GetRobotSystem
@@ -10,6 +9,7 @@ from std_srvs.srv import Trigger
 
 from warehouse_interfaces.srv import MoveToPose, PickPlace
 from warehouse_motion import config_loader as c
+from warehouse_motion.gripper_feedback import wait_for_feedback
 from warehouse_motion.ros_calls import call_service, spin_node
 from warehouse_motion.ros_motion_backend import RosMotionBackend
 from warehouse_motion.safe_move import DR_BASE, MotionError, SafeMover, SafetyLimitError
@@ -83,26 +83,17 @@ class MotionServer(Node):
             response.message = str(error)
         return response
 
-    def gripper_call(self, command):
-        result = call_service(self.io_executor, self.gripper[command], Trigger.Request(), 4.0)
+    def gripper_call(self, command, timeout=6.0):
+        result = call_service(self.io_executor, self.gripper[command], Trigger.Request(), timeout)
         if not result.success:
             raise MotionError(f'Gripper {command}: {result.message}')
         return result.message
 
     def wait_for_gripper(self, condition, description):
-        deadline = time.monotonic() + 4.0
-        while time.monotonic() < deadline:
-            try:
-                fields = dict(part.split('=', 1) for part in self.gripper_call('status').split())
-                moving, position, current = (
-                    int(fields[key]) for key in ('moving', 'position_pulses', 'current')
-                )
-            except (KeyError, ValueError) as error:
-                raise MotionError('Malformed gripper feedback') from error
-            if moving == 0 and condition(position, abs(current)):
-                return
-            time.sleep(0.1)
-        raise MotionError(f'Gripper did not confirm {description}')
+        wait_for_feedback(
+            lambda remaining: self.gripper_call('status', timeout=remaining),
+            condition, description,
+        )
 
     def grasp_feedback(self, product_name):
         feedback = self.products_cfg['products'][product_name]['real'].get('grasp_feedback') or {}
